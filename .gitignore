@@ -1,0 +1,67 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# R
+.Rhistory
+.Rapp.history
+.RData
+.RDataTmp
+.Ruserdata
+*-Ex.R
+*.tar.gz
+*.Rcheck/
+.Rproj.user/
+vignettes/*.html
+vignettes/*.pdf
+*_cache/
+cache/
+*.utf8.md
+*.knit.md
+.Renviron
+docs/
+po/*~
+rsconnect/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb
+
+# Data and outputs
+data/*
+output/*
+*.tif
+*.geojson
+*.csv
+!data/.gitkeep
+!output/.gitkeep
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Credentials
+config/credentials.yaml
+*.yaml
+!requirements.yaml

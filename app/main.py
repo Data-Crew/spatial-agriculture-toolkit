@@ -1,0 +1,833 @@
+"""
+Spatial Agriculture Toolkit - Main Streamlit Application
+
+A toolkit for spatial analysis in precision agriculture, providing
+interpolation and autocorrelation models for field-level decision making.
+"""
+
+import streamlit as st
+from keplergl import KeplerGl
+from streamlit_keplergl import keplergl_static
+
+import pandas as pd
+import geopandas as gpd
+import json
+from shapely.geometry import Polygon
+
+import os
+import sys
+
+# Add app directory to path for imports
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
+if parent_dir not in sys.path:
+    sys.path.insert(0, parent_dir)
+
+from app.spatial_interpolations import field_interpolation_predictor
+from app.data_synthesis.field_loader import FieldLoader
+from app.data_synthesis.soil_data_generator import (
+    generate_soil_samples_in_region,
+    generate_cycle_realizations,
+    parse_bbox_from_geojson,
+    CYCLE_SCENARIOS,
+    FERTILITY_PHASES,
+)
+from app.spatial_autocorrelation import add_local_autocorrelation_labels, geopandas_to_h3
+
+# Page configuration
+st.set_page_config(
+    page_title="Spatial Agriculture Toolkit",
+    page_icon="🌾",
+    layout='wide',
+    initial_sidebar_state='expanded'
+)
+
+# Custom CSS for branding
+st.markdown("""
+    <style>
+    .main-header {
+        font-size: 2.5rem;
+        font-weight: bold;
+        color: #2E7D32;
+        text-align: center;
+        margin-bottom: 1rem;
+    }
+    .subtitle {
+        font-size: 1.2rem;
+        color: #666;
+        text-align: center;
+        margin-bottom: 2rem;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+# Header
+st.markdown('<h1 class="main-header">🌾 Spatial Agriculture Toolkit</h1>', unsafe_allow_html=True)
+st.markdown('<p class="subtitle">Spatial Analysis for Precision Agriculture</p>', unsafe_allow_html=True)
+
+# Sidebar menu
+menu_list = st.sidebar.radio(
+    'Analysis Modules',
+    ["Spatial Interpolations", "Spatial Autocorrelation"],
+    help="Select the analysis module you want to use"
+)
+
+# ============================================================================
+# SPATIAL INTERPOLATIONS MODULE
+# ============================================================================
+if menu_list == "Spatial Interpolations":
+    st.header("Field-Level Spatial Interpolation")
+    st.markdown("""
+    Predict occurrence probabilities of agricultural events or properties across 
+    your field using spatial interpolation models. This tool helps identify 
+    spatial patterns and risk zones for better field management decisions.
+    """)
+    
+    # Initialize field loader (cached to avoid reinitialization)
+    @st.cache_resource
+    def get_field_loader():
+        return FieldLoader()
+    
+    field_loader = get_field_loader()
+    
+    # Field Zone Manager
+    st.sidebar.markdown("### 🌍 Field Zone Manager")
+    
+    # List available tiles (cached)
+    @st.cache_data(ttl=300)  # Cache for 5 minutes
+    def get_available_tiles():
+        return field_loader.list_available_tiles()
+    
+    available_tiles = get_available_tiles()
+    
+    if not available_tiles:
+        st.sidebar.error("No GeoJSON tiles found in data directory")
+        st.sidebar.info(f"Expected path: {field_loader.base_dir}")
+        selected_tile = None
+        gdf_fields = None
+        tile_center = None
+    else:
+        # Tile selector
+        selected_tile = st.sidebar.selectbox(
+            "Select Tile",
+            available_tiles,
+            help="Select a GeoJSON tile with delineated fields"
+        )
+        
+        if selected_tile:
+            # Initialize variables
+            gdf_fields = None
+            tile_center = None
+            
+            # Get tile bounds (cached to avoid recalculating)
+            @st.cache_data(ttl=3600)  # Cache for 1 hour
+            def get_cached_tile_bounds(tile_name):
+                return field_loader.get_tile_bounds(tile_name)
+            
+            try:
+                tile_bounds = get_cached_tile_bounds(selected_tile)
+                tile_center_lon = (tile_bounds[0] + tile_bounds[2]) / 2
+                tile_center_lat = (tile_bounds[1] + tile_bounds[3]) / 2
+                tile_center = (tile_center_lon, tile_center_lat)
+                
+                st.sidebar.info(f"Tile bounds:\n{tile_bounds}")
+                
+                # Max fields limit
+                max_fields = st.sidebar.number_input(
+                    "Max Fields",
+                    min_value=100,
+                    max_value=10000,
+                    value=2000,
+                    step=100,
+                    help="Maximum number of fields to load (to avoid memory issues)"
+                )
+                
+                # Check if we have cached fields for this tile
+                if 'loaded_fields' in st.session_state and st.session_state.get('selected_tile') == selected_tile:
+                    gdf_fields = st.session_state['loaded_fields']
+                    tile_center = st.session_state.get('tile_center', tile_center)
+                else:
+                    # Auto-load fields when tile is selected
+                    try:
+                        with st.spinner(f"Loading fields from {selected_tile}..."):
+                            gdf_fields = field_loader.load_fields(
+                                selected_tile,
+                                max_fields=max_fields
+                            )
+                        
+                        if len(gdf_fields) == 0:
+                            st.sidebar.warning(f"No fields found in {selected_tile}")
+                            st.session_state['loaded_fields'] = None
+                            gdf_fields = None
+                        elif len(gdf_fields) >= max_fields:
+                            st.sidebar.warning(f"⚠️ Loaded {len(gdf_fields)} fields (limit reached). Consider increasing Max Fields.")
+                            st.session_state['loaded_fields'] = gdf_fields
+                            st.session_state['selected_tile'] = selected_tile
+                            st.session_state['tile_center'] = tile_center
+                        else:
+                            st.session_state['loaded_fields'] = gdf_fields
+                            st.session_state['selected_tile'] = selected_tile
+                            st.session_state['tile_center'] = tile_center
+                            st.sidebar.success(f"✅ Loaded {len(gdf_fields)} fields")
+                    except Exception as e:
+                        st.sidebar.error(f"Error loading fields: {str(e)}")
+                        import traceback
+                        st.sidebar.exception(e)
+                        st.session_state['loaded_fields'] = None
+                        gdf_fields = None
+            except Exception as e:
+                st.sidebar.error(f"Error getting tile info: {str(e)}")
+                gdf_fields = None
+                tile_center = None
+        else:
+            gdf_fields = None
+            tile_center = None
+    
+    map_col = st.container(border=True)
+    
+    with map_col:
+        # Load Kepler config
+        config_path = os.path.join(os.path.dirname(__file__), 'spatial_interpolations', 'kepler_config.json')
+        with open(config_path) as config_file:
+            config = json.load(config_file)
+        
+        # Center map on tile center if available
+        if tile_center:
+            config['config']['mapState']['latitude'] = tile_center[1]
+            config['config']['mapState']['longitude'] = tile_center[0]
+            config['config']['mapState']['zoom'] = 11
+        
+        sim_frame_map = KeplerGl(height=800, config=config)
+        landing_map = sim_frame_map
+        
+        # Add fields to map if loaded
+        if gdf_fields is not None and len(gdf_fields) > 0:
+            sim_frame_map.add_data(data=gdf_fields, name="delineated_fields")
+            st.info(f"📊 {len(gdf_fields)} fields loaded and displayed on map")
+        
+        # Add PPP dataset (all realizations combined) to map as a single layer
+        if 'ppp_data' in st.session_state and st.session_state['ppp_data'] is not None:
+            gdf_ppp = st.session_state['ppp_data']
+            sim_frame_map.add_data(data=gdf_ppp, name="point_pattern")
+            st.info(
+                f"📊 Point pattern loaded: **{len(gdf_ppp)} points** across "
+                f"**{gdf_ppp['realization'].nunique()} realizations**. "
+                f"Use the `realization` column in Kepler filters to explore individual frames."
+            )
+
+        with st.expander("**Define Analysis Region**"):
+            st.markdown("""
+            **Define the 2D region ℛ for spatial interpolation:**
+            
+            Copy a GeoJSON Polygon directly from the Kepler map viewport (draw a polygon, 
+            click on it, and copy from the feature panel), then paste it below to define 
+            your bounded analysis region.
+            """)
+            
+            # Region bbox input
+            region_bbox_input = st.text_area(
+                "Region ℛ (GeoJSON Polygon)",
+                value="",
+                help="Paste GeoJSON Polygon from Kepler to define the bounded analysis region",
+                height=100
+            )
+            
+            region_bbox = None
+            if region_bbox_input.strip():
+                region_bbox = parse_bbox_from_geojson(region_bbox_input.strip())
+                if region_bbox:
+                    st.success(f"✅ Region ℛ defined: [{region_bbox[0]:.6f}, {region_bbox[1]:.6f}, {region_bbox[2]:.6f}, {region_bbox[3]:.6f}]")
+                    st.session_state['region_bbox'] = region_bbox
+                else:
+                    st.error("Could not parse GeoJSON Polygon. Please check the format.")
+                    st.session_state['region_bbox'] = None
+            else:
+                st.session_state['region_bbox'] = None
+        
+        with st.expander("**Set Up Field Events**"):
+            st.markdown("""
+            **Planar Point Pattern (PPP):**  
+            
+            Simulate where events occur across your field by setting a set of random point 
+            locations within region ℛ. Generate multiple realizations automatically 
+            using agronomic cycle scenarios (e.g., degradation, recovery), or upload 
+            your own field observations as CSV.
+            
+            All points are loaded as a single dataset with a `realization` column—use 
+            Kepler's filter panel to explore individual frames.
+            """)
+
+            # --- Show current PPP status ---
+            if 'ppp_data' in st.session_state and st.session_state['ppp_data'] is not None:
+                gdf_ppp = st.session_state['ppp_data']
+                n_real = gdf_ppp['realization'].nunique()
+                n_pts = len(gdf_ppp)
+                source = st.session_state.get('ppp_source', 'unknown')
+                cycle_label = st.session_state.get('ppp_cycle_label', '')
+
+                st.success(
+                    f"**Current PPP:** {n_real} realizations, {n_pts} total points "
+                    f"({source}){' — ' + cycle_label if cycle_label else ''}"
+                )
+
+                # Phase breakdown with descriptions
+                if 'phase' in gdf_ppp.columns:
+                    # Build label→description lookup from FERTILITY_PHASES
+                    _label_to_desc = {
+                        v['label']: v.get('description', '')
+                        for v in FERTILITY_PHASES.values()
+                    }
+
+                    phase_summary = (
+                        gdf_ppp.groupby('realization')['phase']
+                        .first()
+                        .reset_index()
+                        .rename(columns={'phase': 'Phase'})
+                    )
+                    phase_summary['Description'] = phase_summary['Phase'].map(
+                        lambda p: _label_to_desc.get(p, '')
+                    )
+                    st.dataframe(
+                        phase_summary[['realization', 'Phase', 'Description']].rename(
+                            columns={'realization': 'Realization'}
+                        ),
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+
+                if st.button("Clear Point Pattern", key="clear_ppp"):
+                    st.session_state['ppp_data'] = None
+                    st.session_state.pop('ppp_source', None)
+                    st.session_state.pop('ppp_cycle_label', None)
+                    # Also clear old-style realizations if any
+                    st.session_state.pop('realizations', None)
+                    st.rerun()
+
+            st.markdown("---")
+
+            # --- Two tabs: Generate / Upload ---
+            tab_gen, tab_upload = st.tabs(["Generate Cycle Scenario", "Upload CSV"])
+
+            # ====== TAB: Generate Cycle Scenario ======
+            with tab_gen:
+                has_region = (
+                    'region_bbox' in st.session_state
+                    and st.session_state['region_bbox'] is not None
+                )
+
+                if not has_region:
+                    st.warning("Define Region ℛ above before generating synthetic realizations.")
+                else:
+                    # Cycle selector
+                    cycle_keys = list(CYCLE_SCENARIOS.keys())
+                    cycle_labels = [CYCLE_SCENARIOS[k]['name'] for k in cycle_keys]
+
+                    selected_cycle_idx = st.selectbox(
+                        "Agronomic Cycle Scenario",
+                        range(len(cycle_keys)),
+                        format_func=lambda i: cycle_labels[i],
+                        key="cycle_selector",
+                        help="Choose a predefined scenario that simulates a temporal cycle",
+                    )
+                    selected_cycle = cycle_keys[selected_cycle_idx]
+                    cycle_info = CYCLE_SCENARIOS[selected_cycle]
+
+                    # Description
+                    st.caption(cycle_info['description'])
+
+                    # Show phase sequence
+                    phase_seq = " → ".join(
+                        FERTILITY_PHASES[p]['label'] for p in cycle_info['phases']
+                    )
+                    st.markdown(f"**Phase sequence:** {phase_seq}")
+
+                    col_a, col_b, col_c = st.columns(3)
+                    with col_a:
+                        n_realizations = st.number_input(
+                            "Number of Realizations",
+                            min_value=2,
+                            max_value=120,
+                            value=12,
+                            step=1,
+                            key="n_realizations",
+                            help=(
+                                "How many frames to generate. The cycle phases "
+                                "are distributed evenly across these frames."
+                            ),
+                        )
+                    with col_b:
+                        n_samples = st.number_input(
+                            "Points per Realization",
+                            min_value=10,
+                            max_value=500,
+                            value=50,
+                            step=10,
+                            key="n_samples_cycle",
+                            help="Number of sample points in each realization",
+                        )
+                    with col_c:
+                        seed = st.number_input(
+                            "Random Seed",
+                            min_value=0,
+                            max_value=99999,
+                            value=42,
+                            key="seed_cycle",
+                            help="Seed for reproducibility",
+                        )
+
+                    if st.button(
+                        f"Generate {n_realizations} Realizations",
+                        type="primary",
+                        key="generate_cycle",
+                        use_container_width=True,
+                    ):
+                        with st.spinner(
+                            f"Generating {n_realizations} realizations "
+                            f"({n_samples} pts each) — {cycle_info['name']}..."
+                        ):
+                            try:
+                                gdf_ppp = generate_cycle_realizations(
+                                    bbox=st.session_state['region_bbox'],
+                                    cycle_name=selected_cycle,
+                                    n_realizations=n_realizations,
+                                    n_samples_per_realization=n_samples,
+                                    seed=seed,
+                                )
+                                st.session_state['ppp_data'] = gdf_ppp
+                                st.session_state['ppp_source'] = 'synthetic'
+                                st.session_state['ppp_cycle_label'] = cycle_info['name']
+                                # Clear old-style realizations
+                                st.session_state.pop('realizations', None)
+
+                                st.success(
+                                    f"Generated {len(gdf_ppp)} points across "
+                                    f"{n_realizations} realizations"
+                                )
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Error generating cycle: {e}")
+                                import traceback
+                                st.exception(e)
+
+            # ====== TAB: Upload CSV ======
+            with tab_upload:
+                st.markdown("""
+                **Expected CSV format:**  
+                `longitude`, `latitude`, `realization` (integer), and optionally
+                `event_type`, `phase`, `pH`, `organic_matter_pct`, etc.  
+                Each unique `realization` value becomes a separate frame.
+                """)
+
+                uploaded_file = st.file_uploader(
+                    "Upload Point Pattern CSV",
+                    type=['csv'],
+                    key="upload_ppp",
+                    help="CSV with longitude, latitude, and realization columns",
+                )
+
+                if uploaded_file:
+                    if st.button("Load CSV", type="primary", key="load_csv_ppp"):
+                        try:
+                            df = pd.read_csv(uploaded_file)
+                            required = ['longitude', 'latitude']
+                            missing = [c for c in required if c not in df.columns]
+                            if missing:
+                                st.error(f"Missing required columns: {missing}")
+                            else:
+                                # Create realization column if missing
+                                if 'realization' not in df.columns:
+                                    if 'occurrence_date' in df.columns:
+                                        dates_sorted = sorted(df['occurrence_date'].unique())
+                                        date_to_idx = {d: i + 1 for i, d in enumerate(dates_sorted)}
+                                        df['realization'] = df['occurrence_date'].map(date_to_idx)
+                                    else:
+                                        df['realization'] = 1
+
+                                # Create event_type if missing
+                                if 'event_type' not in df.columns:
+                                    if 'fertility_index' in df.columns:
+                                        fert_map = {
+                                            5: 'High Fertility',
+                                            4: 'Good Fertility',
+                                            3: 'Moderate Fertility',
+                                            2: 'Low Fertility',
+                                            1: 'Very Low Fertility',
+                                        }
+                                        df['event_type'] = df['fertility_index'].map(fert_map).fillna('Moderate Fertility')
+                                    elif 'phase' in df.columns:
+                                        df['event_type'] = df['phase']
+                                    elif 'scenario' in df.columns:
+                                        df['event_type'] = df['scenario']
+                                    else:
+                                        df['event_type'] = 'unknown'
+
+                                gdf_ppp = gpd.GeoDataFrame(
+                                    df,
+                                    geometry=gpd.points_from_xy(df['longitude'], df['latitude']),
+                                    crs='EPSG:4326',
+                                )
+                                st.session_state['ppp_data'] = gdf_ppp
+                                st.session_state['ppp_source'] = 'uploaded'
+                                st.session_state['ppp_cycle_label'] = ''
+                                # Clear old-style realizations
+                                st.session_state.pop('realizations', None)
+
+                                n_real = gdf_ppp['realization'].nunique()
+                                st.success(
+                                    f"Loaded {len(gdf_ppp)} points across "
+                                    f"{n_real} realizations"
+                                )
+                                st.rerun()
+                        except Exception as e:
+                            st.error(f"Error loading CSV: {e}")
+                            import traceback
+                            st.exception(e)
+        
+        with st.expander("**Configure Interpolation Model**"):
+            col1, col2, col3 = st.columns([0.33, 0.33, 0.34])
+
+            with col1:
+                st.subheader("Model Selection")
+                prediction_method = st.selectbox(
+                    "Interpolation Method",
+                    ("linear", "orthogonal", "splines", "gam", "kriging"),
+                    index=3,
+                    help=(
+                        "Linear: simple linear trend | "
+                        "Orthogonal: polynomial trends (3rd order) | "
+                        "Splines: B-spline basis with interaction | "
+                        "GAM: 2D thin-plate smooth with automatic penalty (recommended) | "
+                        "Kriging: Indicator Kriging with variogram-based spatial autocorrelation"
+                    ),
+                )
+
+                # Target event selector — restricted to cycle phases
+                target_event = None
+                ppp_data = st.session_state.get('ppp_data')
+                if ppp_data is not None and 'event_type' in ppp_data.columns:
+                    cycle_label = st.session_state.get('ppp_cycle_label', '')
+
+                    # Build label→description lookup
+                    _label_to_desc = {
+                        v['label']: v.get('description', '')
+                        for v in FERTILITY_PHASES.values()
+                    }
+
+                    # Build ordered, deduplicated list of event labels
+                    # from the cycle's phase sequence
+                    event_types = None
+                    if cycle_label:
+                        cycle_key = None
+                        for key, info in CYCLE_SCENARIOS.items():
+                            if info['name'] == cycle_label:
+                                cycle_key = key
+                                break
+                        if cycle_key:
+                            # Map internal keys → English labels, in cycle order
+                            seen = set()
+                            event_types = []
+                            for phase_key in CYCLE_SCENARIOS[cycle_key]['phases']:
+                                lbl = FERTILITY_PHASES.get(
+                                    phase_key, {}
+                                ).get('label', phase_key)
+                                if lbl not in seen:
+                                    event_types.append(lbl)
+                                    seen.add(lbl)
+
+                    # Fallback for uploaded data: use what's in the data
+                    if event_types is None:
+                        event_types = sorted(
+                            set(ppp_data['event_type'].unique().tolist())
+                        )
+
+                    # Display: label + short description
+                    event_options = [
+                        f"{ev} — {_label_to_desc[ev]}"
+                        if ev in _label_to_desc else ev
+                        for ev in event_types
+                    ]
+
+                    st.markdown("**Target Event to Predict:**")
+                    selected_idx = st.selectbox(
+                        "Select event type to predict",
+                        range(len(event_options)),
+                        index=len(event_options) - 1,
+                        format_func=lambda x: event_options[x],
+                        key="target_event_selector",
+                        help="Select which event type to predict probability of occurrence",
+                    )
+                    target_event = event_types[selected_idx]
+                    st.session_state['selected_target_event'] = target_event
+                    st.success(f"Predicting: {target_event}")
+
+            with col2:
+                st.subheader("Data Status")
+                if ppp_data is not None:
+                    n_real = ppp_data['realization'].nunique()
+                    st.success(f"{n_real} realizations, {len(ppp_data)} points")
+                else:
+                    st.warning("No point pattern loaded")
+
+                if st.session_state.get('region_bbox') is not None:
+                    bbox = st.session_state['region_bbox']
+                    st.info(
+                        f"Region ℛ: [{bbox[0]:.4f}, {bbox[1]:.4f}, "
+                        f"{bbox[2]:.4f}, {bbox[3]:.4f}]"
+                    )
+                else:
+                    st.warning("Region ℛ not defined")
+
+            with col3:
+                st.subheader("Run Analysis")
+                if st.button("Run Interpolation", type="primary", use_container_width=True):
+                    if st.session_state.get('region_bbox') is None:
+                        st.warning("Please define Region ℛ first!")
+                    elif ppp_data is None:
+                        st.warning("Please generate or upload a point pattern first!")
+                    elif len(ppp_data) < 10:
+                        st.warning(
+                            "Total sample size is too small for robust "
+                            "interpolation. Need at least 10 points."
+                        )
+                    elif 'event_type' not in ppp_data.columns:
+                        st.warning(
+                            "Point data must contain an 'event_type' column."
+                        )
+                    else:
+                        combined_points = ppp_data
+                        n_real = combined_points['realization'].nunique()
+
+                        with st.spinner(
+                            f"Running spatial interpolation on "
+                            f"{len(combined_points)} points from "
+                            f"{n_real} realizations..."
+                        ):
+                            try:
+                                points_df = pd.DataFrame(
+                                    combined_points.drop(columns="geometry")
+                                )
+
+                                output_dir = os.path.join(
+                                    os.path.dirname(os.path.dirname(__file__)),
+                                    'output',
+                                )
+                                os.makedirs(output_dir, exist_ok=True)
+                                output_path = os.path.join(
+                                    output_dir, 'interpolation_result.tif'
+                                )
+
+                                target_event_selected = st.session_state.get(
+                                    'selected_target_event'
+                                )
+                                if target_event_selected is None:
+                                    ev_sorted = sorted(
+                                        combined_points['event_type'].unique().tolist()
+                                    )
+                                    target_event_selected = (
+                                        ev_sorted[-1] if ev_sorted else None
+                                    )
+
+                                gdf_pred = field_interpolation_predictor(
+                                    df=points_df,
+                                    geom=combined_points,
+                                    prediction_method=prediction_method,
+                                    output_path=output_path,
+                                    target_event=target_event_selected,
+                                )
+
+                                st.session_state['interpolation_results'] = gdf_pred
+                                st.session_state['combined_points'] = combined_points
+
+                                sim_frame_map.add_data(
+                                    data=gdf_pred,
+                                    name="interpolation_results",
+                                )
+
+                                st.success("Interpolation completed successfully!")
+
+                                actual_target = (
+                                    target_event_selected
+                                    or 'unknown'
+                                )
+                                st.session_state['last_predicted_event'] = actual_target
+
+                                st.markdown(f"""
+**How to interpret the results:**
+
+The model predicts the **probability of occurrence** of **"{actual_target}"**.
+High values (0.7-1.0) indicate strong spatial evidence; low values (0.0-0.4) suggest other conditions are more likely.
+Based on **{n_real} realizations** with **{len(combined_points)}** total points.
+                                """)
+
+                                col_m1, col_m2, col_m3 = st.columns(3)
+                                col_m1.metric(
+                                    "Mean Probability",
+                                    f"{gdf_pred['probability'].mean():.3f}",
+                                )
+                                col_m2.metric(
+                                    "Max Probability",
+                                    f"{gdf_pred['probability'].max():.3f}",
+                                )
+                                col_m3.metric(
+                                    "Total Points Used",
+                                    len(combined_points),
+                                )
+                            except Exception as e:
+                                st.error(f"Error running interpolation: {e}")
+                                import traceback
+                                st.exception(e)
+        
+        # Display map
+        keplergl_static(landing_map, center_map=True)
+        
+        # Show results if available
+        if 'interpolation_results' in st.session_state:
+            with st.expander("📊 Interpolation Results Summary"):
+                results = st.session_state['interpolation_results']
+                st.dataframe(
+                    results[['probability']].describe(),
+                    use_container_width=True
+                )
+
+# ============================================================================
+# SPATIAL AUTOCORRELATION MODULE
+# ============================================================================
+if menu_list == "Spatial Autocorrelation":
+    st.header("Spatial Autocorrelation Analysis")
+    st.markdown("""
+    Analyze spatial patterns and clustering in your field data using Local 
+    Indicators of Spatial Association (LISA). Identify hotspots, coldspots, 
+    and spatial outliers in your agricultural data.
+    """)
+    
+    map_col = st.container(border=True)
+    
+    with map_col:
+        # Load Kepler config
+        config_path = os.path.join(os.path.dirname(__file__), 'spatial_autocorrelation', 'kepler_config.json')
+        with open(config_path) as config_file:
+            config = json.load(config_file)
+        sim_frame_map = KeplerGl(height=800, config=config)
+        landing_map = sim_frame_map
+
+        with st.expander("**Configure Autocorrelation Analysis**", expanded=True):
+            col1, col2, col3, col4 = st.columns([0.3, 0.2, 0.2, 0.3])
+            
+            with col1:
+                st.subheader("Data Input")
+                uploaded_file = st.file_uploader(
+                    "Upload GeoDataFrame (GeoJSON)",
+                    type=['geojson'],
+                    help="GeoJSON file with field data and indicator columns"
+                )
+                
+                if uploaded_file:
+                    gdf = gpd.read_file(uploaded_file)
+                    st.session_state['autocorr_gdf'] = gdf
+                    st.success(f"Loaded {len(gdf)} features")
+                    st.info(f"**Columns:** {', '.join(gdf.columns)}")
+            
+            with col2:
+                st.subheader("Hexgrid")
+                activate_hexgrid = st.toggle(
+                    "Use H3 Hexgrid",
+                    value=False,
+                    help="Transform data to H3 hexagonal grid"
+                )
+                
+                if activate_hexgrid:
+                    h3_res = st.number_input(
+                        "H3 Resolution",
+                        min_value=1,
+                        max_value=15,
+                        step=1,
+                        value=6,
+                        help="Higher resolution = smaller hexagons"
+                    )
+            
+            with col3:
+                st.subheader("Analysis")
+                if 'autocorr_gdf' in st.session_state:
+                    gdf = st.session_state['autocorr_gdf']
+                    numeric_cols = gdf.select_dtypes(include=['number']).columns.tolist()
+                    
+                    if numeric_cols:
+                        indicator = st.selectbox(
+                            "Select Indicator",
+                            numeric_cols,
+                            help="Numeric column to analyze"
+                        )
+                    else:
+                        st.warning("No numeric columns found")
+                        indicator = None
+                else:
+                    indicator = None
+            
+            with col4:
+                st.subheader("Run Analysis")
+                if st.button("Run Autocorrelation", type="primary", use_container_width=True):
+                    if 'autocorr_gdf' not in st.session_state:
+                        st.warning("Please upload data first!")
+                    elif indicator is None:
+                        st.warning("Please select an indicator column!")
+                    else:
+                        with st.spinner("Computing spatial autocorrelation..."):
+                            try:
+                                gdf = st.session_state['autocorr_gdf'].copy()
+                                
+                                # Apply hexgrid transformation if requested
+                                if activate_hexgrid:
+                                    gdf = geopandas_to_h3(gdf, resolution=h3_res)
+                                
+                                # Compute autocorrelation
+                                gdf_labeled = add_local_autocorrelation_labels(
+                                    gdf=gdf,
+                                    indicator=indicator,
+                                    p_value=0.05
+                                )
+                                
+                                # Store results
+                                st.session_state['autocorr_results'] = gdf_labeled
+                                
+                                # Add to map
+                                plot_columns = ['id', 'lbl_autocorr', 'lbl_autocorr_col', 'geometry']
+                                if 'id' not in gdf_labeled.columns:
+                                    gdf_labeled['id'] = range(len(gdf_labeled))
+                                
+                                sim_frame_map.add_data(
+                                    data=gdf_labeled[plot_columns],
+                                    name="spatial_autocorr"
+                                )
+                                
+                                st.success("✅ Autocorrelation analysis completed!")
+                                
+                                # Show summary
+                                label_counts = gdf_labeled['lbl_autocorr'].value_counts()
+                                st.dataframe(label_counts, use_container_width=True)
+                                
+                            except Exception as e:
+                                st.error(f"Error running autocorrelation: {str(e)}")
+                                st.exception(e)
+        
+        # Display map
+        keplergl_static(landing_map, center_map=True)
+        
+        # Show legend
+        if 'autocorr_results' in st.session_state:
+            st.markdown("""
+            **Legend:**
+            - 🔴 **HH (High-High)**: High values surrounded by high values (hotspot)
+            - 🟠 **HL (High-Low)**: High value surrounded by low values (outlier)
+            - 🔵 **LH (Low-High)**: Low value surrounded by high values (outlier)
+            - 🔷 **LL (Low-Low)**: Low values surrounded by low values (coldspot)
+            - ⚪ **ns**: Not statistically significant
+            """)
+
+# Footer
+st.markdown("---")
+st.markdown(
+    "<div style='text-align: center; color: #666;'>"
+    "Spatial Agriculture Toolkit - Precision Agriculture Spatial Analysis"
+    "</div>",
+    unsafe_allow_html=True
+)

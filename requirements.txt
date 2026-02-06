@@ -1,0 +1,294 @@
+# Core dependencies - matching working Ubuntu Focal environment exactly
+# Based on pip freeze from ~/Projects/digifarm/SDAT/PyProj/venv
+
+# Core data processing
+numpy==1.26.4
+pandas==2.2.1
+scipy==1.12.0
+scikit-learn==1.4.1.post1
+
+# Geospatial
+geopandas==0.14.3
+geojson==3.1.0
+rasterio==1.3.9
+rasterstats==0.19.0
+fiona==1.9.5
+shapely==2.0.3
+pyproj==3.6.1
+rtree==1.2.0
+mapclassify==2.6.1
+
+# Spatial analysis
+h3==3.7.7
+h3pandas==0.2.6
+pysal==24.1
+libpysal==4.10
+esda==2.5.1
+splot==1.1.5.post1
+giddy==2.3.5
+inequality==1.0.1
+pointpats==2.4.0
+spaghetti==1.7.5.post1
+spglm==1.1.0
+spint==1.0.7
+spopt==0.6.0
+spreg==1.4.2
+spvcm==0.3.0
+tobler==0.11.2
+momepy==0.7.0
+access==1.1.9
+segregation==2.5
+mgwr==2.2.1
+
+# R integration
+rpy2==3.5.13
+
+# Visualization
+matplotlib==3.8.3
+seaborn==0.13.2
+altair==5.2.0
+keplergl==0.3.2
+pydeck==0.8.1b0
+
+# Streamlit
+streamlit==1.31.1
+streamlit-keplergl==0.3.0
+
+# Image processing
+opencv-python==4.9.0.80
+pillow==10.2.0
+tifffile==2024.4.24
+
+# AWS
+boto3==1.34.57
+botocore==1.34.57
+s3transfer==0.10.0
+
+# Database
+psycopg2==2.9.9
+sqlalchemy==2.0.29
+
+# Optimization
+PuLP==2.8.0
+
+# Statistics
+statsmodels==0.14.2
+patsy==0.5.6
+quantecon==0.7.2
+
+# Development tools
+jupyter==1.0.0
+ipykernel==6.29.3
+ipython==8.22.2
+jupyterlab==4.1.4
+notebook==7.1.1
+jupyter-console==6.6.3
+qtconsole==5.5.1
+
+# Utilities
+click==8.1.7
+click-plugins==1.1.1
+cligj==0.7.2
+requests==2.31.0
+urllib3==2.0.7
+certifi==2024.2.2
+python-dateutil==2.9.0.post0
+pytz==2024.1
+tzdata==2024.1
+tzlocal==5.2
+six==1.16.0
+packaging==23.2
+
+# JSON and data formats
+simplejson==3.19.2
+pyarrow==15.0.0
+arrow==1.3.0
+
+# Math and scientific computing
+sympy==1.12
+mpmath==1.3.0
+numba==0.59.1
+llvmlite==0.42.0
+joblib==1.3.2
+threadpoolctl==3.3.0
+
+# Network and async
+networkx==3.2.1
+httpx==0.27.0
+httpcore==1.0.4
+h11==0.14.0
+anyio==4.3.0
+sniffio==1.3.1
+
+# Markup and parsing
+beautifulsoup4==4.12.3
+soupsieve==2.5
+defusedxml==0.7.1
+markdown-it-py==3.0.0
+mdurl==0.1.2
+rich==13.7.1
+Pygments==2.17.2
+
+# Configuration and metadata
+pyyaml==6.0.1
+toml==0.10.2
+tomli==2.0.1
+importlib-metadata==7.0.2
+zipp==3.17.0
+
+# Jupyter extensions
+ipywidgets==7.8.1
+widgetsnbextension==3.6.6
+jupyterlab-widgets==1.1.7
+jupyterlab-pygments==0.3.0
+jupyterlab-server==2.25.3
+jupyter-events==0.9.0
+jupyter-lsp==2.2.4
+jupyter-server==2.13.0
+jupyter-server-terminals==0.5.2
+jupyter-client==8.6.0
+jupyter-core==5.7.1
+notebook-shim==0.2.4
+
+# Jupyter nbconvert
+nbconvert==7.16.2
+nbformat==5.9.2
+nbclient==0.9.0
+pandocfilters==1.5.1
+
+# Security and authentication
+argon2-cffi==23.1.0
+argon2-cffi-bindings==21.2.0
+cffi==1.16.0
+pycparser==2.21
+
+# Git
+GitPython==3.1.42
+gitdb==4.0.11
+smmap==5.0.1
+
+# Validation and schemas
+jsonschema==4.21.1
+jsonschema-specifications==2023.12.1
+referencing==0.33.0
+rpds-py==0.18.0
+rfc3339-validator==0.1.4
+rfc3986-validator==0.1.1
+uri-template==1.3.0
+isoduration==20.11.0
+validators==0.22.0
+fqdn==1.5.1
+
+# Web colors and encoding
+webcolors==1.13
+webencodings==0.5.1
+tinycss2==1.2.1
+
+# Terminal and console
+prompt-toolkit==3.0.43
+wcwidth==0.2.13
+ptyprocess==0.7.0
+pexpect==4.9.0
+
+# File watching
+watchdog==4.0.0
+Send2Trash==1.8.2
+
+# Logging
+python-json-logger==2.0.7
+deprecation==2.1.0
+
+# Monitoring
+prometheus-client==0.20.0
+
+# Async utilities
+nest-asyncio==1.6.0
+async-lru==2.0.4
+
+# IPython dependencies
+traitlets==5.14.1
+decorator==5.1.1
+ipython-genutils==0.2.0
+
+# Jupyter messaging
+pyzmq==25.1.2
+tornado==6.4
+comm==0.2.1
+
+# Debugging
+debugpy==1.8.1
+
+# Code execution
+executing==2.0.1
+asttokens==2.4.1
+pure-eval==0.2.2
+stack-data==0.6.3
+
+# Parsing
+parso==0.8.3
+jedi==0.19.1
+
+# Template engines
+Jinja2==3.1.3
+MarkupSafe==2.1.5
+Babel==2.14.0
+
+# Protocol buffers
+protobuf==4.25.3
+
+# System utilities
+psutil==5.9.8
+platformdirs==4.2.0
+cachetools==5.3.3
+
+# Qt
+QtPy==2.4.1
+
+# Data types
+traittypes==0.2.1
+
+# Overrides
+overrides==7.7.0
+
+# JSON pointer
+jsonpointer==2.4
+json5==0.9.22
+
+# Fast JSON schema
+fastjsonschema==2.19.1
+
+# Bleach for sanitization
+bleach==6.1.0
+
+# Blinker for signals
+blinker==1.7.0
+
+# Tenacity for retries
+tenacity==8.2.3
+
+# Exception groups
+exceptiongroup==1.2.0
+
+# Type stubs
+types-python-dateutil==2.8.19.20240106
+typing-extensions==4.10.0
+
+# Toolz for functional programming
+toolz==0.12.1
+
+# TQDM for progress bars
+tqdm==4.66.2
+
+# Charset normalization
+charset-normalizer==3.3.2
+idna==3.6
+
+# Affine transformations
+affine==2.4.0
+
+# Snuggs for expressions
+snuggs==1.4.7
+
+# Note: SDAT is installed as editable from git, but we don't include it here
+# as it's project-specific. If needed, add:
+# -e git+https://github.com/digifarmio/SDAT.git@2a8a77df20d93bb8a26bc845a18f887a8d98f70e#egg=SDAT

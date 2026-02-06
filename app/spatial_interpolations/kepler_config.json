@@ -1,0 +1,165 @@
+{
+    "version": "v1",
+    "config": {
+      "visState": {
+        "filters": [],
+        "layers": [
+          {
+            "id": "basemap",
+            "type": "basemap",
+            "config": {
+              "label": "Satellite",
+              "url": "https://tiles.stadiamaps.com/tiles/alidade_smooth_satellite/{z}/{x}/{y}{r}.png",
+              "layerType": "bitmap",
+              "visible": true,
+              "value": "default",
+              "alpha": 1
+            }
+          },
+          {
+            "id": "field_observations", 
+            "type": "point",
+            "config": {
+              "dataId": "field_observations", 
+              "label": "Field Observations",
+              "color": [18, 147, 154],
+              "columns": {
+                "lat": "latitude",
+                "lng": "longitude",
+                "altitude": null
+              },
+              "isVisible": true,
+              "visConfig": {
+                "radius": 8,
+                "fixedRadius": false,
+                "opacity": 0.9,
+                "outline": true,
+                "thickness": 1,
+                "strokeColor": [255, 255, 255],
+                "colorRange": {
+                  "name": "Global Warming",
+                  "type": "sequential",
+                  "category": "Uber",
+                  "colors": ["#5A1846", "#900C3F", "#C70039", "#E3611C", "#F1920E", "#FFD301"]
+                },
+                "radiusRange": [0, 50],
+                "filled": true
+              },
+              "textLabel": [
+                {
+                  "field": null,
+                  "color": [255, 255, 255],
+                  "size": 18,
+                  "offset": [0, 0],
+                  "anchor": "start",
+                  "alignment": "center"
+                }
+              ]
+            },
+            "visualChannels": {
+              "colorField": {
+                "name": "event_type",
+                "type": "string"
+              },
+              "colorScale": "ordinal",
+              "strokeColorField": null,
+              "strokeColorScale": "quantile",
+              "sizeField": null,
+              "sizeScale": "linear"
+            }
+          },
+          {
+            "id": "interpolation_results",
+            "type": "polygon",
+            "config": {
+              "dataId": "interpolation_results",
+              "label": "Interpolation Results",
+              "color": [200, 100, 50],
+              "columns": {
+                "geojson": "geometry"
+              },
+              "isVisible": true,
+              "visConfig": {
+                "opacity": 0.7,
+                "strokeOpacity": 0.8,
+                "thickness": 0.5,
+                "colorRange": {
+                  "name": "Probability Scale",
+                  "type": "sequential",
+                  "category": "Uber",
+                  "colors": ["#0066CC", "#0099FF", "#00CCFF", "#66FFCC", "#FFFF99", "#FFCC00", "#FF6600"]
+                },
+                "strokeColor": [255, 255, 255],
+                "heightRange": [0, 500],
+                "elevationScale": 5,
+                "enableElevationZoomFactor": true,
+                "stroked": true,
+                "filled": true,
+                "extruded": false
+              },
+              "visualChannels": {
+                "colorField": {
+                  "name": "probability",
+                  "type": "real"
+                },
+                "colorScale": "quantile",
+                "strokeColorField": null,
+                "strokeColorScale": "quantile",
+                "sizeField": null,
+                "sizeScale": "linear"
+              }
+            }
+          }
+        ],
+        "interactionConfig": {
+          "tooltip": {
+            "fieldsToShow": {
+              "field_observations": ["event_type", "plot_id"],
+              "interpolation_results": ["probability"]
+            },
+            "enabled": true
+          },
+          "brush": {
+            "size": 0.5,
+            "enabled": false
+          },
+          "geocoder": {
+            "enabled": false
+          },
+          "coordinate": {
+            "enabled": false
+          }
+        },
+        "layerBlending": "normal",
+        "splitMaps": [],
+        "animationConfig": {
+          "currentTime": null,
+          "speed": 1
+        }
+      },
+      "mapState": {
+        "bearing": 0,
+        "dragRotate": false,
+        "latitude": 0,
+        "longitude": 0,
+        "pitch": 0,
+        "zoom": 1.5,
+        "isSplit": false
+      },
+      "mapStyle": {
+        "styleType": "satellite",
+        "topLayerGroups": {},
+        "visibleLayerGroups": {
+          "label": true,
+          "road": true,
+          "border": false,
+          "building": true,
+          "water": true,
+          "land": true,
+          "3d building": false
+        },
+        "threeDBuildingColor": [9.665468314072013, 17.18305478057247, 31.1442867897876],
+        "mapStyles": {}
+      }
+    }
+  }

@@ -1,0 +1,133 @@
+{
+    "version": "v1",
+    "config": {
+        "visState": {
+            "filters": [],
+            "layers": [
+                {
+                    "id": "spatial_autocorr",
+                    "type": "polygon",
+                    "config": {
+                        "dataId": "spatial_autocorr",
+                        "label": "Spatial Autocorrelation",
+                        "color": [18, 147, 154],
+                        "columns": {
+                            "geojson": "geometry"
+                        },
+                        "isVisible": true,
+                        "visConfig": {
+                            "opacity": 0.8,
+                            "strokeOpacity": 0.8,
+                            "thickness": 0.5,
+                            "colorRange": {
+                                "name": "Custom Palette",
+                                "type": "categorical",
+                                "category": "Custom",
+                                "colors": [
+                                    "#FF0000",
+                                    "#FFD580",
+                                    "#87CEEB",
+                                    "#0074D9",
+                                    "#D3D3D3"
+                                ]
+                            },
+                            "strokeColor": [255, 255, 255],
+                            "strokeColorRange": {
+                                "name": "Custom Palette",
+                                "type": "categorical",
+                                "category": "Custom",
+                                "colors": [
+                                    "#FF0000",
+                                    "#FFD580",
+                                    "#87CEEB",
+                                    "#0074D9",
+                                    "#D3D3D3"
+                                ]
+                            },
+                            "heightRange": [0, 500],
+                            "elevationScale": 5,
+                            "enableElevationZoomFactor": true,
+                            "stroked": false,
+                            "filled": true,
+                            "extruded": false,
+                            "wireframe": false
+                        },
+                        "textLabel": [
+                            {
+                                "field": null,
+                                "color": [255, 255, 255],
+                                "size": 18,
+                                "offset": [0, 0],
+                                "anchor": "start",
+                                "alignment": "center"
+                            }
+                        ]
+                    },
+                    "visualChannels": {
+                        "colorField": {
+                            "name": "lbl_autocorr",
+                            "type": "string"
+                        },
+                        "colorScale": "ordinal",
+                        "strokeColorField": null,
+                        "strokeColorScale": "ordinal",
+                        "sizeField": null,
+                        "sizeScale": "linear"
+                    }
+                }
+            ],
+            "interactionConfig": {
+                "tooltip": {
+                    "fieldsToShow": {
+                        "spatial_autocorr": ["id", "lbl_autocorr"]
+                    },
+                    "enabled": true
+                },
+                "brush": {
+                    "size": 0.5,
+                    "enabled": false
+                },
+                "geocoder": {
+                    "enabled": false
+                },
+                "coordinate": {
+                    "enabled": false
+                }
+            },
+            "layerBlending": "normal",
+            "splitMaps": [],
+            "animationConfig": {
+                "currentTime": null,
+                "speed": 1
+            }
+        },
+        "mapState": {
+            "bearing": 0,
+            "dragRotate": false,
+            "latitude": 0,
+            "longitude": 0,
+            "pitch": 0,
+            "zoom": 1.5,
+            "isSplit": false
+        },
+        "mapStyle": {
+            "styleType": "satellite",
+            "topLayerGroups": {},
+            "visibleLayerGroups": {
+                "label": true,
+                "road": true,
+                "border": false,
+                "building": true,
+                "water": true,
+                "land": true,
+                "3d building": false
+            },
+            "threeDBuildingColor": [
+                9.665468314072013,
+                17.18305478057247,
+                31.1442867897876
+            ],
+            "mapStyles": {}
+        }
+    }
+}
