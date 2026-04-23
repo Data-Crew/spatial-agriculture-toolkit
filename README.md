@@ -2,6 +2,10 @@
 
 A precision agriculture toolkit for spatial analysis in field-level decision making.
 
+## Documentation
+
+Full project documentation is available in the [`docs/`](docs/) directory.
+
 ## Overview
 
 The Spatial Agriculture Toolkit helps agricultural professionals and researchers

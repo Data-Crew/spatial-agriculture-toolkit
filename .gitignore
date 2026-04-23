@@ -34,7 +34,6 @@ cache/
 *.utf8.md
 *.knit.md
 .Renviron
-docs/
 po/*~
 rsconnect/
 
