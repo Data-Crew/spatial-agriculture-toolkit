@@ -69,6 +69,7 @@
                             "type": "string"
                         },
                         "colorScale": "ordinal",
+                        "colorDomain": ["HH", "HL", "LH", "LL", "ns"],
                         "strokeColorField": null,
                         "strokeColorScale": "ordinal",
                         "sizeField": null,

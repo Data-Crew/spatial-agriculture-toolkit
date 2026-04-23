@@ -703,11 +703,12 @@ if menu_list == "Spatial Autocorrelation":
     map_col = st.container(border=True)
     
     with map_col:
-        # Load Kepler config
+        # Kepler config path (applied AFTER add_data so colorRange/colorDomain
+        # are not overridden by kepler's default categorical scale inference).
         config_path = os.path.join(os.path.dirname(__file__), 'spatial_autocorrelation', 'kepler_config.json')
-        with open(config_path) as config_file:
-            config = json.load(config_file)
-        sim_frame_map = KeplerGl(height=800, config=config)
+
+        # Initialize map without config; config is applied after data is added.
+        sim_frame_map = KeplerGl(height=800)
         landing_map = sim_frame_map
 
         with st.expander("**Configure Autocorrelation Analysis**", expanded=True):
@@ -793,12 +794,28 @@ if menu_list == "Spatial Autocorrelation":
                                 plot_columns = ['id', 'lbl_autocorr', 'lbl_autocorr_col', 'geometry']
                                 if 'id' not in gdf_labeled.columns:
                                     gdf_labeled['id'] = range(len(gdf_labeled))
-                                
+
+                                # Sort so categories are fed to kepler in the
+                                # canonical LISA order (matches colorDomain).
+                                label_order = {'HH': 0, 'HL': 1, 'LH': 2, 'LL': 3, 'ns': 4}
+                                gdf_plot = gdf_labeled[plot_columns].copy()
+                                gdf_plot['_sort'] = gdf_plot['lbl_autocorr'].map(label_order)
+                                gdf_plot = (
+                                    gdf_plot
+                                    .sort_values('_sort')
+                                    .drop(columns=['_sort'])
+                                )
+
                                 sim_frame_map.add_data(
-                                    data=gdf_labeled[plot_columns],
+                                    data=gdf_plot,
                                     name="spatial_autocorr"
                                 )
-                                
+
+                                # Apply config AFTER data so LISA colors stick.
+                                with open(config_path) as config_file:
+                                    config = json.load(config_file)
+                                sim_frame_map.config = config
+
                                 st.success("✅ Autocorrelation analysis completed!")
                                 
                                 # Show summary
