@@ -703,12 +703,14 @@ if menu_list == "Spatial Autocorrelation":
     map_col = st.container(border=True)
     
     with map_col:
-        # Kepler config path (applied AFTER add_data so colorRange/colorDomain
-        # are not overridden by kepler's default categorical scale inference).
+        # Load Kepler config BEFORE constructing the map so the same pattern
+        # used by the Spatial Interpolations module (which renders the
+        # satellite basemap + layer styling correctly) also works here.
         config_path = os.path.join(os.path.dirname(__file__), 'spatial_autocorrelation', 'kepler_config.json')
+        with open(config_path) as config_file:
+            config = json.load(config_file)
 
-        # Initialize map without config; config is applied after data is added.
-        sim_frame_map = KeplerGl(height=800)
+        sim_frame_map = KeplerGl(height=800, config=config)
         landing_map = sim_frame_map
 
         with st.expander("**Configure Autocorrelation Analysis**", expanded=True):
@@ -810,11 +812,6 @@ if menu_list == "Spatial Autocorrelation":
                                     data=gdf_plot,
                                     name="spatial_autocorr"
                                 )
-
-                                # Apply config AFTER data so LISA colors stick.
-                                with open(config_path) as config_file:
-                                    config = json.load(config_file)
-                                sim_frame_map.config = config
 
                                 st.success("✅ Autocorrelation analysis completed!")
                                 

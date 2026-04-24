@@ -6,7 +6,7 @@
             "layers": [
                 {
                     "id": "spatial_autocorr",
-                    "type": "polygon",
+                    "type": "geojson",
                     "config": {
                         "dataId": "spatial_autocorr",
                         "label": "Spatial Autocorrelation",
@@ -20,8 +20,8 @@
                             "strokeOpacity": 0.8,
                             "thickness": 0.5,
                             "colorRange": {
-                                "name": "Custom Palette",
-                                "type": "categorical",
+                                "name": "LISA Custom",
+                                "type": "customOrdinal",
                                 "category": "Custom",
                                 "colors": [
                                     "#FF0000",
@@ -29,21 +29,16 @@
                                     "#87CEEB",
                                     "#0074D9",
                                     "#D3D3D3"
+                                ],
+                                "colorMap": [
+                                    ["HH", "#FF0000"],
+                                    ["HL", "#FFD580"],
+                                    ["LH", "#87CEEB"],
+                                    ["LL", "#0074D9"],
+                                    ["ns", "#D3D3D3"]
                                 ]
                             },
                             "strokeColor": [255, 255, 255],
-                            "strokeColorRange": {
-                                "name": "Custom Palette",
-                                "type": "categorical",
-                                "category": "Custom",
-                                "colors": [
-                                    "#FF0000",
-                                    "#FFD580",
-                                    "#87CEEB",
-                                    "#0074D9",
-                                    "#D3D3D3"
-                                ]
-                            },
                             "heightRange": [0, 500],
                             "elevationScale": 5,
                             "enableElevationZoomFactor": true,
@@ -68,7 +63,7 @@
                             "name": "lbl_autocorr",
                             "type": "string"
                         },
-                        "colorScale": "ordinal",
+                        "colorScale": "customOrdinal",
                         "colorDomain": ["HH", "HL", "LH", "LL", "ns"],
                         "strokeColorField": null,
                         "strokeColorScale": "ordinal",
