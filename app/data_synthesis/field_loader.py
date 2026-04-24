@@ -5,6 +5,7 @@ This module loads GeoJSON files with delineated fields and allows filtering
 by bounding box to handle large datasets efficiently.
 """
 
+import ast
 import os
 import geopandas as gpd
 import pandas as pd
@@ -386,16 +387,105 @@ class FieldLoader:
         # Load CSV
         df = pd.read_csv(csv_path)
         
-        # Parse the 'props' column if it's a string representation of dict
+        # Parse the 'props' column if it's a string representation of dict.
+        # Prefer ast.literal_eval because the CSV stores Python-style dicts
+        # (single quotes); fall back to json.loads for JSON-compliant strings.
         if 'props' in df.columns:
             try:
                 df['props'] = df['props'].apply(
-                    lambda x: json.loads(x) if isinstance(x, str) else x
+                    lambda x: ast.literal_eval(x) if isinstance(x, str) else x
                 )
-            except:
-                pass  # Keep as is if parsing fails
-        
+            except Exception:
+                try:
+                    df['props'] = df['props'].apply(
+                        lambda x: json.loads(x) if isinstance(x, str) else x
+                    )
+                except Exception:
+                    pass  # Keep as is if parsing fails
+
         return df
+
+    def expand_cdl_properties(self, props_df: pd.DataFrame) -> pd.DataFrame:
+        """Expand the ``props`` column into individual analysis-ready columns.
+
+        The CSV stores a nested ``props`` dict per field with scalar attributes
+        (area, flatness, ...) and a ``cdl_stats`` sub-dict with per-year crops.
+        This flattens it into columns suitable for Moran I analysis:
+
+        - ``area``, ``flatness``, ``perimeter``, ``confidence``, ``center_lat``,
+          ``center_lng`` (when present)
+        - ``crop_{year}``, ``crop_pct_{year}``, ``crop_id_{year}`` for each year
+        - ``freq_{crop_name}`` = fraction of years that crop was dominant
+        """
+        from collections import Counter
+
+        records = []
+        for _, row in props_df.iterrows():
+            record = {'id': row['id']}
+            props = row.get('props')
+            if not isinstance(props, dict):
+                records.append(record)
+                continue
+
+            # Scalar fields
+            for key in ('area', 'flatness', 'perimeter', 'confidence',
+                        'center_lat', 'center_lng'):
+                if key in props:
+                    record[key] = props[key]
+
+            # CDL stats
+            cdl = props.get('cdl_stats', {})
+            if cdl and 'year' in cdl and 'crops' in cdl:
+                years = cdl['year']
+                crops = cdl['crops']
+                crop_pcts = cdl.get('crop_percentages', [None] * len(years))
+                crop_ids = cdl.get('crop_ids', [None] * len(years))
+
+                for y, crop, pct, cid in zip(years, crops, crop_pcts, crop_ids):
+                    record[f'crop_{y}'] = crop
+                    record[f'crop_pct_{y}'] = pct
+                    record[f'crop_id_{y}'] = cid
+
+                # Frequency columns: share of years each crop was dominant
+                crop_counts = Counter(crops)
+                total_years = len(years)
+                if total_years:
+                    for crop_name, count in crop_counts.items():
+                        col_name = f'freq_{str(crop_name).replace(" ", "_")}'
+                        record[col_name] = round(count / total_years, 4)
+
+            records.append(record)
+
+        return pd.DataFrame(records)
+
+    def load_fields_with_properties(
+        self,
+        tile_name: str,
+        max_fields: int = 5000,
+    ) -> gpd.GeoDataFrame:
+        """Load fields GeoJSON and merge with expanded CDL properties from CSV.
+
+        Falls back to the base fields when no properties CSV can be resolved.
+        """
+        gdf = self.load_fields(tile_name, max_fields=max_fields)
+        if gdf.empty:
+            return gdf
+
+        props_df = self.load_properties_csv(tile_name)
+        if props_df.empty:
+            props_df = self.load_properties_csv()  # fallback to any CSV
+
+        if not props_df.empty and 'props' in props_df.columns:
+            try:
+                expanded = self.expand_cdl_properties(props_df)
+                gdf['id'] = gdf['id'].astype(str)
+                expanded['id'] = expanded['id'].astype(str)
+                gdf = gdf.merge(expanded, on='id', how='left')
+            except Exception as e:
+                import warnings
+                warnings.warn(f"Could not merge properties: {e}")
+
+        return gdf
     
     def get_tile_bounds(self, tile_name: str) -> Tuple[float, float, float, float]:
         """

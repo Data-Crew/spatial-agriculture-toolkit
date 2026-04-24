@@ -73,6 +73,105 @@ menu_list = st.sidebar.radio(
 )
 
 # ============================================================================
+# SHARED SIDEBAR: Field Zone Manager (available for ALL modules)
+# ============================================================================
+
+# Initialize field loader (cached to avoid reinitialization)
+@st.cache_resource
+def get_field_loader():
+    return FieldLoader()
+
+field_loader = get_field_loader()
+
+# Default values (ensure they exist even if no tile is selected)
+selected_tile = None
+gdf_fields = None
+tile_center = None
+max_fields = 2000
+
+# Field Zone Manager
+st.sidebar.markdown("### 🌍 Field Zone Manager")
+
+# List available tiles (cached)
+@st.cache_data(ttl=300)  # Cache for 5 minutes
+def get_available_tiles():
+    return field_loader.list_available_tiles()
+
+available_tiles = get_available_tiles()
+
+if not available_tiles:
+    st.sidebar.error("No GeoJSON tiles found in data directory")
+    st.sidebar.info(f"Expected path: {field_loader.base_dir}")
+else:
+    # Tile selector
+    selected_tile = st.sidebar.selectbox(
+        "Select Tile",
+        available_tiles,
+        help="Select a GeoJSON tile with delineated fields"
+    )
+
+    if selected_tile:
+        # Get tile bounds (cached to avoid recalculating)
+        @st.cache_data(ttl=3600)  # Cache for 1 hour
+        def get_cached_tile_bounds(tile_name):
+            return field_loader.get_tile_bounds(tile_name)
+
+        try:
+            tile_bounds = get_cached_tile_bounds(selected_tile)
+            tile_center_lon = (tile_bounds[0] + tile_bounds[2]) / 2
+            tile_center_lat = (tile_bounds[1] + tile_bounds[3]) / 2
+            tile_center = (tile_center_lon, tile_center_lat)
+
+            st.sidebar.info(f"Tile bounds:\n{tile_bounds}")
+
+            # Max fields limit
+            max_fields = st.sidebar.number_input(
+                "Max Fields",
+                min_value=100,
+                max_value=10000,
+                value=2000,
+                step=100,
+                help="Maximum number of fields to load (to avoid memory issues)"
+            )
+
+            # Check if we have cached fields for this tile
+            if 'loaded_fields' in st.session_state and st.session_state.get('selected_tile') == selected_tile:
+                gdf_fields = st.session_state['loaded_fields']
+                tile_center = st.session_state.get('tile_center', tile_center)
+            else:
+                # Auto-load fields when tile is selected
+                try:
+                    with st.spinner(f"Loading fields from {selected_tile}..."):
+                        gdf_fields = field_loader.load_fields(
+                            selected_tile,
+                            max_fields=max_fields
+                        )
+
+                    if len(gdf_fields) == 0:
+                        st.sidebar.warning(f"No fields found in {selected_tile}")
+                        st.session_state['loaded_fields'] = None
+                        gdf_fields = None
+                    elif len(gdf_fields) >= max_fields:
+                        st.sidebar.warning(f"⚠️ Loaded {len(gdf_fields)} fields (limit reached). Consider increasing Max Fields.")
+                        st.session_state['loaded_fields'] = gdf_fields
+                        st.session_state['selected_tile'] = selected_tile
+                        st.session_state['tile_center'] = tile_center
+                    else:
+                        st.session_state['loaded_fields'] = gdf_fields
+                        st.session_state['selected_tile'] = selected_tile
+                        st.session_state['tile_center'] = tile_center
+                        st.sidebar.success(f"✅ Loaded {len(gdf_fields)} fields")
+                except Exception as e:
+                    st.sidebar.error(f"Error loading fields: {str(e)}")
+                    st.sidebar.exception(e)
+                    st.session_state['loaded_fields'] = None
+                    gdf_fields = None
+        except Exception as e:
+            st.sidebar.error(f"Error getting tile info: {str(e)}")
+            gdf_fields = None
+            tile_center = None
+
+# ============================================================================
 # SPATIAL INTERPOLATIONS MODULE
 # ============================================================================
 if menu_list == "Spatial Interpolations":
@@ -82,107 +181,7 @@ if menu_list == "Spatial Interpolations":
     your field using spatial interpolation models. This tool helps identify 
     spatial patterns and risk zones for better field management decisions.
     """)
-    
-    # Initialize field loader (cached to avoid reinitialization)
-    @st.cache_resource
-    def get_field_loader():
-        return FieldLoader()
-    
-    field_loader = get_field_loader()
-    
-    # Field Zone Manager
-    st.sidebar.markdown("### 🌍 Field Zone Manager")
-    
-    # List available tiles (cached)
-    @st.cache_data(ttl=300)  # Cache for 5 minutes
-    def get_available_tiles():
-        return field_loader.list_available_tiles()
-    
-    available_tiles = get_available_tiles()
-    
-    if not available_tiles:
-        st.sidebar.error("No GeoJSON tiles found in data directory")
-        st.sidebar.info(f"Expected path: {field_loader.base_dir}")
-        selected_tile = None
-        gdf_fields = None
-        tile_center = None
-    else:
-        # Tile selector
-        selected_tile = st.sidebar.selectbox(
-            "Select Tile",
-            available_tiles,
-            help="Select a GeoJSON tile with delineated fields"
-        )
-        
-        if selected_tile:
-            # Initialize variables
-            gdf_fields = None
-            tile_center = None
-            
-            # Get tile bounds (cached to avoid recalculating)
-            @st.cache_data(ttl=3600)  # Cache for 1 hour
-            def get_cached_tile_bounds(tile_name):
-                return field_loader.get_tile_bounds(tile_name)
-            
-            try:
-                tile_bounds = get_cached_tile_bounds(selected_tile)
-                tile_center_lon = (tile_bounds[0] + tile_bounds[2]) / 2
-                tile_center_lat = (tile_bounds[1] + tile_bounds[3]) / 2
-                tile_center = (tile_center_lon, tile_center_lat)
-                
-                st.sidebar.info(f"Tile bounds:\n{tile_bounds}")
-                
-                # Max fields limit
-                max_fields = st.sidebar.number_input(
-                    "Max Fields",
-                    min_value=100,
-                    max_value=10000,
-                    value=2000,
-                    step=100,
-                    help="Maximum number of fields to load (to avoid memory issues)"
-                )
-                
-                # Check if we have cached fields for this tile
-                if 'loaded_fields' in st.session_state and st.session_state.get('selected_tile') == selected_tile:
-                    gdf_fields = st.session_state['loaded_fields']
-                    tile_center = st.session_state.get('tile_center', tile_center)
-                else:
-                    # Auto-load fields when tile is selected
-                    try:
-                        with st.spinner(f"Loading fields from {selected_tile}..."):
-                            gdf_fields = field_loader.load_fields(
-                                selected_tile,
-                                max_fields=max_fields
-                            )
-                        
-                        if len(gdf_fields) == 0:
-                            st.sidebar.warning(f"No fields found in {selected_tile}")
-                            st.session_state['loaded_fields'] = None
-                            gdf_fields = None
-                        elif len(gdf_fields) >= max_fields:
-                            st.sidebar.warning(f"⚠️ Loaded {len(gdf_fields)} fields (limit reached). Consider increasing Max Fields.")
-                            st.session_state['loaded_fields'] = gdf_fields
-                            st.session_state['selected_tile'] = selected_tile
-                            st.session_state['tile_center'] = tile_center
-                        else:
-                            st.session_state['loaded_fields'] = gdf_fields
-                            st.session_state['selected_tile'] = selected_tile
-                            st.session_state['tile_center'] = tile_center
-                            st.sidebar.success(f"✅ Loaded {len(gdf_fields)} fields")
-                    except Exception as e:
-                        st.sidebar.error(f"Error loading fields: {str(e)}")
-                        import traceback
-                        st.sidebar.exception(e)
-                        st.session_state['loaded_fields'] = None
-                        gdf_fields = None
-            except Exception as e:
-                st.sidebar.error(f"Error getting tile info: {str(e)}")
-                gdf_fields = None
-                tile_center = None
-        else:
-            gdf_fields = None
-            tile_center = None
-    
+
     map_col = st.container(border=True)
     
     with map_col:
@@ -699,9 +698,82 @@ if menu_list == "Spatial Autocorrelation":
     Indicators of Spatial Association (LISA). Identify hotspots, coldspots, 
     and spatial outliers in your agricultural data.
     """)
-    
+
+    # --- Load enriched fields if tile is selected ---
+    # Uses gdf_fields and selected_tile from the shared sidebar
+    if selected_tile and gdf_fields is not None:
+        # Load enriched data with CDL properties (cached in session_state)
+        if ('autocorr_enriched_gdf' not in st.session_state
+                or st.session_state.get('autocorr_selected_tile') != selected_tile):
+            try:
+                with st.spinner("Loading field properties from CSV..."):
+                    gdf_enriched = field_loader.load_fields_with_properties(
+                        selected_tile, max_fields=max_fields
+                    )
+                st.session_state['autocorr_enriched_gdf'] = gdf_enriched
+                st.session_state['autocorr_selected_tile'] = selected_tile
+            except Exception as e:
+                st.warning(f"Could not load properties: {e}. Using basic fields.")
+                st.session_state['autocorr_enriched_gdf'] = gdf_fields
+                st.session_state['autocorr_selected_tile'] = selected_tile
+
+        gdf_enriched = st.session_state['autocorr_enriched_gdf']
+    else:
+        gdf_enriched = None
+
+    # --- Analysis Mode definitions ---
+    ANALYSIS_MODES = {
+        "Crop Frequency": {
+            "description": "How consistently a crop dominates each field across all years",
+            "help": (
+                "Measures the proportion of years (2008-2022) where a specific crop was the "
+                "dominant land cover. A value of 0.73 means the crop was dominant in 73% of years. "
+                "Moran I identifies spatial clusters of persistent monoculture (HH) vs. "
+                "crop rotation zones (LL)."
+            ),
+            "legend": {
+                "HH": "Cluster where {detail} dominates consistently (high frequency near high frequency)",
+                "LL": "Cluster where {detail} rarely appears (low frequency near low frequency)",
+                "HL": "Field with high {detail} frequency surrounded by low frequency (spatial outlier)",
+                "LH": "Field with low {detail} frequency surrounded by high frequency (spatial outlier)",
+                "ns": "No statistically significant spatial pattern",
+            },
+        },
+        "Crop Coverage": {
+            "description": "Percentage of field area covered by the dominant crop in a specific year",
+            "help": (
+                "Uses the crop_percentage value for a selected year — the share of the field's area "
+                "covered by its dominant crop. High values indicate strong single-crop dominance; "
+                "low values suggest mixed land use. Moran I reveals spatial patterns of crop "
+                "homogeneity (HH) vs. fragmentation (LL)."
+            ),
+            "legend": {
+                "HH": "Cluster of high crop coverage in {detail} (homogeneous near homogeneous)",
+                "LL": "Cluster of low crop coverage in {detail} (fragmented near fragmented)",
+                "HL": "Homogeneous field surrounded by fragmented fields (spatial outlier)",
+                "LH": "Fragmented field surrounded by homogeneous fields (spatial outlier)",
+                "ns": "No statistically significant spatial pattern",
+            },
+        },
+        "Field Properties": {
+            "description": "Physical field characteristics (area, flatness, perimeter, etc.)",
+            "help": (
+                "Analyzes spatial clustering of physical field characteristics. Useful for detecting "
+                "structural patterns in field delineation — e.g., clusters of large fields (HH) vs. "
+                "small parcels (LL), or clusters of flat vs. irregular terrain."
+            ),
+            "legend": {
+                "HH": "Cluster of high {detail} values (high near high)",
+                "LL": "Cluster of low {detail} values (low near low)",
+                "HL": "High {detail} surrounded by low values (spatial outlier)",
+                "LH": "Low {detail} surrounded by high values (spatial outlier)",
+                "ns": "No statistically significant spatial pattern",
+            },
+        },
+    }
+
     map_col = st.container(border=True)
-    
+
     with map_col:
         # Load Kepler config BEFORE constructing the map so the same pattern
         # used by the Spatial Interpolations module (which renders the
@@ -710,89 +782,148 @@ if menu_list == "Spatial Autocorrelation":
         with open(config_path) as config_file:
             config = json.load(config_file)
 
+        # Center map on tile if available
+        if tile_center:
+            config['config']['mapState']['latitude'] = tile_center[1]
+            config['config']['mapState']['longitude'] = tile_center[0]
+            config['config']['mapState']['zoom'] = 11
+
         sim_frame_map = KeplerGl(height=800, config=config)
         landing_map = sim_frame_map
 
+        # Show fields on map if loaded
+        if gdf_enriched is not None and len(gdf_enriched) > 0:
+            sim_frame_map.add_data(data=gdf_enriched, name="delineated_fields")
+            st.info(f"📊 {len(gdf_enriched)} enriched fields loaded and displayed on map")
+
         with st.expander("**Configure Autocorrelation Analysis**", expanded=True):
             col1, col2, col3, col4 = st.columns([0.3, 0.2, 0.2, 0.3])
-            
+
+            # --- Col1: Analysis Mode ---
             with col1:
-                st.subheader("Data Input")
-                uploaded_file = st.file_uploader(
-                    "Upload GeoDataFrame (GeoJSON)",
-                    type=['geojson'],
-                    help="GeoJSON file with field data and indicator columns"
+                st.subheader("Analysis Mode")
+                selected_mode = st.selectbox(
+                    "Select Analysis Mode",
+                    list(ANALYSIS_MODES.keys()),
+                    format_func=lambda m: f"{m} — {ANALYSIS_MODES[m]['description']}",
+                    key="autocorr_mode",
+                    help="Choose what aspect of the data to analyze for spatial clustering",
                 )
-                
-                if uploaded_file:
-                    gdf = gpd.read_file(uploaded_file)
-                    st.session_state['autocorr_gdf'] = gdf
-                    st.success(f"Loaded {len(gdf)} features")
-                    st.info(f"**Columns:** {', '.join(gdf.columns)}")
-            
+                st.caption(ANALYSIS_MODES[selected_mode]["help"])
+
+            # --- Col2: Hexgrid ---
             with col2:
                 st.subheader("Hexgrid")
                 activate_hexgrid = st.toggle(
                     "Use H3 Hexgrid",
                     value=False,
-                    help="Transform data to H3 hexagonal grid"
+                    help="Transform data to H3 hexagonal grid",
                 )
-                
                 if activate_hexgrid:
                     h3_res = st.number_input(
                         "H3 Resolution",
-                        min_value=1,
-                        max_value=15,
-                        step=1,
-                        value=6,
-                        help="Higher resolution = smaller hexagons"
+                        min_value=1, max_value=15, step=1, value=6,
+                        help="Higher resolution = smaller hexagons",
                     )
-            
+
+            # --- Col3: Indicator (contextual based on mode) ---
             with col3:
-                st.subheader("Analysis")
-                if 'autocorr_gdf' in st.session_state:
-                    gdf = st.session_state['autocorr_gdf']
-                    numeric_cols = gdf.select_dtypes(include=['number']).columns.tolist()
-                    
-                    if numeric_cols:
-                        indicator = st.selectbox(
-                            "Select Indicator",
-                            numeric_cols,
-                            help="Numeric column to analyze"
-                        )
-                    else:
-                        st.warning("No numeric columns found")
-                        indicator = None
+                st.subheader("Indicator")
+                indicator = None
+                indicator_detail = ""
+
+                if gdf_enriched is None:
+                    st.warning("Select a tile in the sidebar to load data")
                 else:
-                    indicator = None
-            
+                    if selected_mode == "Crop Frequency":
+                        freq_cols = [c for c in gdf_enriched.columns if c.startswith('freq_')]
+                        if freq_cols:
+                            crop_names = [c.replace('freq_', '').replace('_', ' ') for c in freq_cols]
+                            selected_crop = st.selectbox(
+                                "Select Crop", crop_names,
+                                help="Crop to analyze frequency clustering for",
+                            )
+                            indicator = f"freq_{selected_crop.replace(' ', '_')}"
+                            indicator_detail = selected_crop
+                            if indicator in gdf_enriched.columns:
+                                st.metric("Mean frequency", f"{gdf_enriched[indicator].mean():.2%}")
+                        else:
+                            st.warning("No crop frequency columns found. Check CSV properties.")
+
+                    elif selected_mode == "Crop Coverage":
+                        pct_cols = [c for c in gdf_enriched.columns if c.startswith('crop_pct_')]
+                        if pct_cols:
+                            years = sorted([int(c.replace('crop_pct_', '')) for c in pct_cols])
+                            selected_year = st.selectbox(
+                                "Select Year", years,
+                                index=len(years) - 1,
+                                help="Year to analyze crop coverage for",
+                            )
+                            indicator = f"crop_pct_{selected_year}"
+                            indicator_detail = str(selected_year)
+                            if indicator in gdf_enriched.columns:
+                                st.metric("Mean coverage", f"{gdf_enriched[indicator].mean():.1f}%")
+                        else:
+                            st.warning("No crop coverage columns found. Check CSV properties.")
+
+                    elif selected_mode == "Field Properties":
+                        exclude_prefixes = ('freq_', 'crop_pct_', 'crop_id_', 'crop_')
+                        exclude_exact = {'id', 'geometry', 'index'}
+                        numeric_cols = gdf_enriched.select_dtypes(include=['number']).columns.tolist()
+                        property_cols = [
+                            c for c in numeric_cols
+                            if c not in exclude_exact and not any(c.startswith(p) for p in exclude_prefixes)
+                        ]
+                        if property_cols:
+                            selected_prop = st.selectbox(
+                                "Select Property", property_cols,
+                                help="Field property to analyze",
+                            )
+                            indicator = selected_prop
+                            indicator_detail = selected_prop
+                            if indicator in gdf_enriched.columns:
+                                st.metric(f"Mean {selected_prop}", f"{gdf_enriched[indicator].mean():.2f}")
+                        else:
+                            st.warning("No numeric property columns found")
+
+            # --- Col4: Run ---
             with col4:
-                st.subheader("Run Analysis")
+                st.subheader("Model Parameters")
+                weights_type = st.selectbox(
+                    "Spatial Weights", ["queen", "knn"],
+                    help="Queen: shared edges/vertices | KNN: k nearest neighbors",
+                )
+                if weights_type == "knn":
+                    knn_k = st.number_input("K neighbors", min_value=1, max_value=20, value=5)
+                else:
+                    knn_k = 5
+                p_value = st.number_input(
+                    "P-value threshold",
+                    min_value=0.01, max_value=0.10, value=0.05, step=0.01,
+                )
+
                 if st.button("Run Autocorrelation", type="primary", use_container_width=True):
-                    if 'autocorr_gdf' not in st.session_state:
-                        st.warning("Please upload data first!")
+                    if gdf_enriched is None:
+                        st.warning("Please select a tile in the sidebar first!")
                     elif indicator is None:
-                        st.warning("Please select an indicator column!")
+                        st.warning("Please select an indicator!")
                     else:
                         with st.spinner("Computing spatial autocorrelation..."):
                             try:
-                                gdf = st.session_state['autocorr_gdf'].copy()
-                                
-                                # Apply hexgrid transformation if requested
+                                gdf = gdf_enriched.copy()
+
                                 if activate_hexgrid:
                                     gdf = geopandas_to_h3(gdf, resolution=h3_res)
-                                
-                                # Compute autocorrelation
+
                                 gdf_labeled = add_local_autocorrelation_labels(
-                                    gdf=gdf,
-                                    indicator=indicator,
-                                    p_value=0.05
+                                    gdf=gdf, indicator=indicator,
+                                    p_value=p_value, weights=weights_type, knn_k=knn_k,
                                 )
-                                
-                                # Store results
+
                                 st.session_state['autocorr_results'] = gdf_labeled
-                                
-                                # Add to map
+                                st.session_state['autocorr_mode_used'] = selected_mode
+                                st.session_state['autocorr_detail'] = indicator_detail
+
                                 plot_columns = ['id', 'lbl_autocorr', 'lbl_autocorr_col', 'geometry']
                                 if 'id' not in gdf_labeled.columns:
                                     gdf_labeled['id'] = range(len(gdf_labeled))
@@ -808,34 +939,37 @@ if menu_list == "Spatial Autocorrelation":
                                     .drop(columns=['_sort'])
                                 )
 
-                                sim_frame_map.add_data(
-                                    data=gdf_plot,
-                                    name="spatial_autocorr"
-                                )
+                                # Clear previous layers and add results
+                                if "delineated_fields" in sim_frame_map.data:
+                                    sim_frame_map.data = {}
 
-                                st.success("✅ Autocorrelation analysis completed!")
-                                
-                                # Show summary
+                                sim_frame_map.add_data(data=gdf_plot, name="spatial_autocorr")
+
+                                st.success(
+                                    f"Autocorrelation completed! Mode: {selected_mode}, "
+                                    f"Indicator: {indicator}"
+                                )
                                 label_counts = gdf_labeled['lbl_autocorr'].value_counts()
                                 st.dataframe(label_counts, use_container_width=True)
-                                
+
                             except Exception as e:
-                                st.error(f"Error running autocorrelation: {str(e)}")
+                                st.error(f"Error: {str(e)}")
                                 st.exception(e)
-        
+
         # Display map
         keplergl_static(landing_map, center_map=True)
-        
-        # Show legend
+
+        # Contextual legend based on mode used
         if 'autocorr_results' in st.session_state:
-            st.markdown("""
-            **Legend:**
-            - 🔴 **HH (High-High)**: High values surrounded by high values (hotspot)
-            - 🟠 **HL (High-Low)**: High value surrounded by low values (outlier)
-            - 🔵 **LH (Low-High)**: Low value surrounded by high values (outlier)
-            - 🔷 **LL (Low-Low)**: Low values surrounded by low values (coldspot)
-            - ⚪ **ns**: Not statistically significant
-            """)
+            mode_used = st.session_state.get('autocorr_mode_used', 'Field Properties')
+            detail = st.session_state.get('autocorr_detail', '')
+            legend_templates = ANALYSIS_MODES[mode_used]["legend"]
+
+            st.markdown("**LISA Results Interpretation:**")
+            emojis = {'HH': '🔴', 'HL': '🟠', 'LH': '🔵', 'LL': '🔷', 'ns': '⚪'}
+            for label in ['HH', 'HL', 'LH', 'LL', 'ns']:
+                desc = legend_templates[label].format(detail=detail)
+                st.markdown(f"- {emojis[label]} **{label}**: {desc}")
 
 # Footer
 st.markdown("---")
