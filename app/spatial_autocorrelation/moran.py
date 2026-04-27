@@ -196,31 +196,47 @@ def add_local_autocorrelation_labels(
         - lbl_autocorr: autocorrelation labels (HH, HL, LH, LL, ns)
         - lbl_autocorr_col: color codes for visualization
     """
-    w = compute_weights(gdf, weights=weights, knn_k=knn_k)
-    lisa = esda.Moran_Local(gdf[indicator], w)
-    sig = lisa.p_sim < p_value
-    hot = lisa.q == 1
-    cold = lisa.q == 3
-    doughnut = lisa.q == 2
-    diamond = lisa.q == 4
-
-    labels = pd.Series(['ns']*len(gdf), index=gdf.index)
-    labels[(sig) & (hot)] = 'HH'
-    labels[(sig) & (doughnut)] = 'HL'
-    labels[(sig) & (diamond)] = 'LH'
-    labels[(sig) & (cold)] = 'LL'
-
-    gdf['lbl_autocorr'] = labels
-
     colors = {
         'HH': '#FF0000',  # Red
         'HL': '#FFD580',  # Light Orange
         'LH': '#87CEEB',  # Sky Blue
         'LL': '#0074D9',  # Darker Blue
-        'ns': '#D3D3D3'  # Light Grey
+        'ns': '#D3D3D3'   # Light Grey
     }
 
-    gdf['lbl_autocorr_col'] = gdf['lbl_autocorr'].map(colors)
+    labels = pd.Series(['ns'] * len(gdf), index=gdf.index)
+
+    # Rows with NaN in the indicator cannot participate in LISA. esda.Moran_Local
+    # propagates NaN through Is/z_sim and the quadrant column collapses to 3 (LL),
+    # which would mislabel every row as LL. Compute LISA on the valid subset and
+    # leave NaN rows as 'ns'.
+    valid_mask = gdf[indicator].notna()
+
+    if valid_mask.sum() < 3:
+        gdf['lbl_autocorr'] = labels
+        gdf['lbl_autocorr_col'] = labels.map(colors)
+        return gdf
+
+    gdf_valid = gdf[valid_mask].copy()
+    w = compute_weights(gdf_valid, weights=weights, knn_k=knn_k)
+    lisa = esda.Moran_Local(gdf_valid[indicator].values, w)
+
+    # pysal Moran_Local quadrant convention:
+    #   q=1 -> HH (high value, high lag)
+    #   q=2 -> LH (low value, high lag — "doughnut")
+    #   q=3 -> LL (low value, low lag)
+    #   q=4 -> HL (high value, low lag — "diamond")
+    sig = lisa.p_sim < p_value
+    valid_labels = pd.Series(['ns'] * len(gdf_valid), index=gdf_valid.index)
+    valid_labels[sig & (lisa.q == 1)] = 'HH'
+    valid_labels[sig & (lisa.q == 2)] = 'LH'
+    valid_labels[sig & (lisa.q == 3)] = 'LL'
+    valid_labels[sig & (lisa.q == 4)] = 'HL'
+
+    labels.loc[gdf_valid.index] = valid_labels
+
+    gdf['lbl_autocorr'] = labels
+    gdf['lbl_autocorr_col'] = labels.map(colors)
 
     return gdf
 

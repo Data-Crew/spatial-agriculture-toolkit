@@ -70,12 +70,44 @@
                         "sizeField": null,
                         "sizeScale": "linear"
                     }
+                },
+                {
+                    "id": "field_boundaries",
+                    "type": "geojson",
+                    "config": {
+                        "dataId": "field_boundaries",
+                        "label": "Field Boundaries",
+                        "color": [255, 255, 255],
+                        "columns": {
+                            "geojson": "geometry"
+                        },
+                        "isVisible": true,
+                        "visConfig": {
+                            "opacity": 1.0,
+                            "strokeOpacity": 1.0,
+                            "thickness": 1.2,
+                            "strokeColor": [255, 255, 255],
+                            "stroked": true,
+                            "filled": false,
+                            "extruded": false,
+                            "wireframe": false
+                        }
+                    },
+                    "visualChannels": {
+                        "colorField": null,
+                        "colorScale": "quantile",
+                        "strokeColorField": null,
+                        "strokeColorScale": "quantile",
+                        "sizeField": null,
+                        "sizeScale": "linear"
+                    }
                 }
             ],
             "interactionConfig": {
                 "tooltip": {
                     "fieldsToShow": {
-                        "spatial_autocorr": ["id", "lbl_autocorr"]
+                        "spatial_autocorr": ["id", "lbl_autocorr"],
+                        "field_boundaries": ["id"]
                     },
                     "enabled": true
                 },
