@@ -945,6 +945,37 @@ if menu_list == "Spatial Autocorrelation":
 
                                 sim_frame_map.add_data(data=gdf_plot, name="spatial_autocorr")
 
+                                # When the analysis is run on an H3 hexgrid the
+                                # original parcel geometry is no longer rendered
+                                # by the spatial_autocorr layer. Add the parcel
+                                # outlines as a separate reference layer so the
+                                # user keeps visual context.
+                                if activate_hexgrid:
+                                    field_boundaries = gdf_enriched[['id', 'geometry']].copy()
+                                    sim_frame_map.add_data(
+                                        data=field_boundaries,
+                                        name="field_boundaries",
+                                    )
+
+                                # Diagnostic warning for degenerate indicators
+                                # post-resampling (e.g. freq_* on H3 res >= 8
+                                # collapses to a near-binary distribution and
+                                # any "significance" reported by Moran_Local is
+                                # mostly an artifact of the inflated sample
+                                # size, not a real spatial pattern).
+                                values = gdf[indicator].dropna()
+                                n_unique = values.nunique()
+                                if activate_hexgrid and n_unique < 5:
+                                    st.warning(
+                                        f"Indicator `{indicator}` only has "
+                                        f"{n_unique} unique values after H3 "
+                                        f"resampling at resolution {h3_res}. "
+                                        "LISA significance at high resolutions "
+                                        "may be artifactual — try a lower "
+                                        "resolution or a continuous indicator "
+                                        "(e.g. crop_pct_*, area)."
+                                    )
+
                                 st.success(
                                     f"Autocorrelation completed! Mode: {selected_mode}, "
                                     f"Indicator: {indicator}"
