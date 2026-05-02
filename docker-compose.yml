@@ -1,14 +1,23 @@
 services:
-  app:
+  # Streamlit web app — interactive UI for spatial interpolation and autocorrelation.
+  # Reachable at http://localhost:8501 once the container is healthy.
+  streamlit:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: spatial-agriculture-toolkit
+    container_name: spatial-agriculture-toolkit-streamlit
+    command:
+      - streamlit
+      - run
+      - app/main.py
+      - --server.port=8501
+      - --server.address=0.0.0.0
     ports:
       - "8501:8501"
     volumes:
       - ./app:/app/app
       - ./data:/app/data
+      - ./notebooks:/app/notebooks
       - ./output:/app/output
       - ./scripts:/app/scripts
     environment:
@@ -21,11 +30,11 @@ services:
       retries: 3
       start_period: 40s
 
-  # Optional sidecar for executing notebooks in `notebooks/` against the same
-  # image as the app. Start with: `docker compose up jupyter`.
-  # Then open http://localhost:8888/lab — token auth is disabled for local-only use.
+  # JupyterLab kernel for executing the documentation notebooks under `notebooks/`.
+  # Reuses the same image as the streamlit service. Reachable at http://localhost:8888/lab
+  # once the container is healthy. Token auth is disabled for local-only use — DO NOT
+  # expose port 8888 to the public internet without re-enabling auth.
   jupyter:
-    profiles: ["notebooks"]
     build:
       context: .
       dockerfile: Dockerfile
