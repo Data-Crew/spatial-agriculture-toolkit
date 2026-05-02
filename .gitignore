@@ -48,6 +48,11 @@ output/*
 *.csv
 !data/.gitkeep
 !output/.gitkeep
+# Demo data shipped with the repo (referenced by the Streamlit tile picker
+# and by notebooks/h3_resolution_effects.ipynb). Negations must come AFTER
+# the *.geojson / *.csv lines because git uses last-match-wins.
+!data/_demo_crop_fd_test_tile_v1.geojson
+!data/props__fd_test_tile_v1.csv
 
 # IDE
 .vscode/
