@@ -20,3 +20,34 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+
+  # Optional sidecar for executing notebooks in `notebooks/` against the same
+  # image as the app. Start with: `docker compose up jupyter`.
+  # Then open http://localhost:8888/lab — token auth is disabled for local-only use.
+  jupyter:
+    profiles: ["notebooks"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: spatial-agriculture-toolkit-jupyter
+    command:
+      - jupyter
+      - lab
+      - --ip=0.0.0.0
+      - --port=8888
+      - --allow-root
+      - --no-browser
+      - --ServerApp.token=
+      - --ServerApp.password=
+      - --ServerApp.root_dir=/app
+    ports:
+      - "8888:8888"
+    volumes:
+      - ./app:/app/app
+      - ./data:/app/data
+      - ./notebooks:/app/notebooks
+      - ./output:/app/output
+      - ./scripts:/app/scripts
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
