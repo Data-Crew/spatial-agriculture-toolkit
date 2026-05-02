@@ -39,7 +39,6 @@ rsconnect/
 
 # Jupyter Notebook
 .ipynb_checkpoints
-*.ipynb
 
 # Data and outputs
 data/*
