@@ -61,7 +61,7 @@ This starts two services:
 | `streamlit` | http://localhost:8501 | Interactive UI for spatial interpolation and autocorrelation |
 | `jupyter` | http://localhost:8888/lab | JupyterLab kernel for running the documentation notebooks under `notebooks/` |
 
-The `streamlit` service is the main app. The `jupyter` service is a sidecar that reuses the same Docker image to expose a kernel for the project's notebooks (token auth disabled — local-only).
+The `streamlit` service is the main app. The `jupyter` service is a sidecar that reuses the same Docker image to expose a kernel for the project's notebooks. **Security note**: the `jupyter` service runs JupyterLab with token auth disabled, so its host port is bound to `127.0.0.1:8888` only — it is reachable from your machine but **not** from other devices on the same LAN. If you need to expose it remotely, re-enable token auth in `docker-compose.yml` (drop the empty `--ServerApp.token` / `--ServerApp.password` flags) and switch the port binding back to `"8888:8888"`.
 
 3. Use the toolkit:
    - **Streamlit app**: open http://localhost:8501. Pick a tile from the sidebar (the repo ships with a synthetic demo tile, see [Demo data](#demo-data)) and switch between *Spatial Interpolations* and *Spatial Autocorrelation* via the menu.

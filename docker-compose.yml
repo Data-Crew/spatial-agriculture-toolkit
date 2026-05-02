@@ -32,8 +32,11 @@ services:
 
   # JupyterLab kernel for executing the documentation notebooks under `notebooks/`.
   # Reuses the same image as the streamlit service. Reachable at http://localhost:8888/lab
-  # once the container is healthy. Token auth is disabled for local-only use — DO NOT
-  # expose port 8888 to the public internet without re-enabling auth.
+  # once the container is healthy. Token auth is disabled for local-only use, so the host
+  # port is bound to 127.0.0.1 only — the kernel is NOT reachable from other machines on
+  # the LAN. If you need remote access, re-enable auth (drop the empty --ServerApp.token /
+  # --ServerApp.password flags and let JupyterLab generate a token) and switch the port
+  # binding back to "8888:8888".
   jupyter:
     build:
       context: .
@@ -50,7 +53,7 @@ services:
       - --ServerApp.password=
       - --ServerApp.root_dir=/app
     ports:
-      - "8888:8888"
+      - "127.0.0.1:8888:8888"
     volumes:
       - ./app:/app/app
       - ./data:/app/data
