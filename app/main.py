@@ -33,6 +33,12 @@ from app.data_synthesis.soil_data_generator import (
     FERTILITY_PHASES,
 )
 from app.spatial_autocorrelation import add_local_autocorrelation_labels, geopandas_to_h3
+from app.spatial_autocorrelation.h3_diagnostics import (
+    recommend_h3_resolution,
+    cardinality_class,
+    compute_replication_factor,
+    lisa_on_fields_render_on_hexes,
+)
 
 # Page configuration
 st.set_page_config(
@@ -819,12 +825,39 @@ if menu_list == "Spatial Autocorrelation":
                     value=False,
                     help="Transform data to H3 hexagonal grid",
                 )
-                if activate_hexgrid:
+                compute_on_fields = False
+                if activate_hexgrid and gdf_enriched is not None:
+                    rec_res, _ = recommend_h3_resolution(gdf_enriched)
+                    st.metric("Recommended resolution", f"res {rec_res}")
+                    st.caption(
+                        "ℹ️ Matches median field size to H3 cell area. "
+                        "Aim for ~1 hex per field to avoid fragmentation artifacts."
+                    )
+                    h3_res = st.number_input(
+                        "H3 Resolution",
+                        min_value=1, max_value=15, step=1, value=rec_res,
+                        help="Higher resolution = smaller hexagons. Default follows the recommendation above.",
+                    )
+                    compute_on_fields = st.toggle(
+                        "Compute LISA on fields, render on hexes",
+                        value=True,
+                        help=(
+                            "Avoids the four inflation mechanisms from polyfill "
+                            "fragmentation (recommended when using hexgrid)"
+                        ),
+                    )
+                    st.caption(
+                        "ℹ️ Computes LISA on field polygons, then copies labels to hexes. "
+                        "Avoids pseudo-replicate inflation."
+                    )
+                elif activate_hexgrid:
                     h3_res = st.number_input(
                         "H3 Resolution",
                         min_value=1, max_value=15, step=1, value=6,
                         help="Higher resolution = smaller hexagons",
                     )
+                else:
+                    h3_res = 6  # default, not used when hexgrid is off
 
             # --- Col3: Indicator (contextual based on mode) ---
             with col3:
@@ -886,6 +919,30 @@ if menu_list == "Spatial Autocorrelation":
                         else:
                             st.warning("No numeric property columns found")
 
+                    # Cardinality badge — shown for every mode once indicator is chosen
+                    if indicator is not None and indicator in gdf_enriched.columns:
+                        n_unique = gdf_enriched[indicator].dropna().nunique()
+                        level, emoji, css_color = cardinality_class(n_unique)
+                        st.markdown(
+                            f"<span style='color:{css_color}; font-weight:bold;'>"
+                            f"Cardinality: {level} {emoji} ({n_unique} unique values)"
+                            f"</span>",
+                            unsafe_allow_html=True,
+                        )
+                        st.caption(
+                            "ℹ️ Cardinality = distinct values the indicator takes. "
+                            "Low cardinality on a hexgrid makes LISA mostly mechanical, not statistical."
+                        )
+                        if activate_hexgrid and n_unique < 5:
+                            st.warning(
+                                f"Indicator `{indicator}` has only {n_unique} unique values. "
+                                "At high H3 resolutions, LISA significance may be artifactual."
+                            )
+                            st.caption(
+                                "💡 Tip: use a high-cardinality indicator or enable "
+                                "\"Compute LISA on fields, render on hexes\"."
+                            )
+
             # --- Col4: Run ---
             with col4:
                 st.subheader("Model Parameters")
@@ -910,15 +967,27 @@ if menu_list == "Spatial Autocorrelation":
                     else:
                         with st.spinner("Computing spatial autocorrelation..."):
                             try:
-                                gdf = gdf_enriched.copy()
-
-                                if activate_hexgrid:
-                                    gdf = geopandas_to_h3(gdf, resolution=h3_res)
-
-                                gdf_labeled = add_local_autocorrelation_labels(
-                                    gdf=gdf, indicator=indicator,
-                                    p_value=p_value, weights=weights_type, knn_k=knn_k,
-                                )
+                                if activate_hexgrid and compute_on_fields:
+                                    gdf_labeled = lisa_on_fields_render_on_hexes(
+                                        gdf_fields=gdf_enriched,
+                                        indicator=indicator,
+                                        resolution=h3_res,
+                                        p_value=p_value,
+                                        weights=weights_type,
+                                        knn_k=knn_k,
+                                    )
+                                    st.info(
+                                        "LISA computed on field geometry to avoid "
+                                        "fragmentation artifacts. Results rendered on hex grid."
+                                    )
+                                else:
+                                    gdf = gdf_enriched.copy()
+                                    if activate_hexgrid:
+                                        gdf = geopandas_to_h3(gdf, resolution=h3_res)
+                                    gdf_labeled = add_local_autocorrelation_labels(
+                                        gdf=gdf, indicator=indicator,
+                                        p_value=p_value, weights=weights_type, knn_k=knn_k,
+                                    )
 
                                 st.session_state['autocorr_results'] = gdf_labeled
                                 st.session_state['autocorr_mode_used'] = selected_mode
@@ -957,24 +1026,41 @@ if menu_list == "Spatial Autocorrelation":
                                         name="field_boundaries",
                                     )
 
-                                # Diagnostic warning for degenerate indicators
-                                # post-resampling (e.g. freq_* on H3 res >= 8
-                                # collapses to a near-binary distribution and
-                                # any "significance" reported by Moran_Local is
-                                # mostly an artifact of the inflated sample
-                                # size, not a real spatial pattern).
-                                values = gdf[indicator].dropna()
-                                n_unique = values.nunique()
-                                if activate_hexgrid and n_unique < 5:
-                                    st.warning(
-                                        f"Indicator `{indicator}` only has "
-                                        f"{n_unique} unique values after H3 "
-                                        f"resampling at resolution {h3_res}. "
-                                        "LISA significance at high resolutions "
-                                        "may be artifactual — try a lower "
-                                        "resolution or a continuous indicator "
-                                        "(e.g. crop_pct_*, area)."
+                                # Replication factor — only meaningful when hexgrid is on
+                                if activate_hexgrid:
+                                    replication = compute_replication_factor(gdf_enriched, gdf_labeled)
+                                    st.metric("Replication factor", f"{replication:.2f}×")
+                                    st.caption(
+                                        "ℹ️ Hex count ÷ field count. "
+                                        ">1.5 means fields are split into many identical copies, inflating Moran's I."
                                     )
+                                    if replication > 1.5:
+                                        st.warning(
+                                            "Each field is fragmented into >1.5 hexes on average. "
+                                            "Moran's I may inflate artificially."
+                                        )
+                                        st.caption(
+                                            "💡 Try a lower H3 resolution or enable "
+                                            "\"Compute LISA on fields, render on hexes\"."
+                                        )
+
+                                # Diagnostic warning for degenerate indicators.
+                                # Only relevant when LISA is computed directly on
+                                # the hexgrid; the compute-on-fields mode avoids
+                                # this issue entirely.
+                                if activate_hexgrid and not compute_on_fields:
+                                    values = gdf[indicator].dropna()
+                                    n_unique_post = values.nunique()
+                                    if n_unique_post < 5:
+                                        st.warning(
+                                            f"Indicator `{indicator}` only has "
+                                            f"{n_unique_post} unique values after H3 "
+                                            f"resampling at resolution {h3_res}. "
+                                            "LISA significance at high resolutions "
+                                            "may be artifactual — try a lower "
+                                            "resolution or a continuous indicator "
+                                            "(e.g. crop_pct_*, area)."
+                                        )
 
                                 st.success(
                                     f"Autocorrelation completed! Mode: {selected_mode}, "
