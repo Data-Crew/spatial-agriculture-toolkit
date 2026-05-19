@@ -984,8 +984,10 @@ if menu_list == "Spatial Autocorrelation":
                             unsafe_allow_html=True,
                         )
                         st.caption(
-                            "ℹ️ Cardinality = distinct values the indicator takes. "
-                            "Low cardinality on a hexgrid makes LISA mostly mechanical, not statistical."
+                            "ℹ️ Cardinality = how many different numbers this indicator takes. "
+                            "Example: 'freq_corn' with only 2 values (0.5 and 1.0) = Low 🔴. "
+                            "'area' with 100 different values = High 🟢. "
+                            "Low cardinality + hexgrid = LISA sees clones, not real patterns."
                         )
                         if activate_hexgrid and n_unique < 5:
                             st.warning(

@@ -176,7 +176,7 @@ def lisa_on_fields_render_on_hexes(
         inherited from the parent field labels.
     """
     # 1. Compute LISA on field geometry
-    gdf_labeled = add_local_autocorrelation_labels(
+    gdf_fields_labeled = add_local_autocorrelation_labels(
         gdf=gdf_fields.copy(),
         indicator=indicator,
         p_value=p_value,
@@ -184,8 +184,25 @@ def lisa_on_fields_render_on_hexes(
         knn_k=knn_k,
     )
 
-    # 2. Hexify — polyfill_resample copies all columns, so each hex gets
-    #    the lbl_autocorr / lbl_autocorr_col of its parent field.
-    gdf_h3 = geopandas_to_h3(gdf_labeled, resolution=resolution, resample=True)
+    # 2. Hexify the original fields (without label columns).
+    #    polyfill_resample drops string columns, so we hexify the raw
+    #    fields first and join labels back afterwards.
+    gdf_h3 = geopandas_to_h3(gdf_fields.copy(), resolution=resolution, resample=True)
+
+    # 3. Spatial join: each hex gets the label of the field whose
+    #    polygon contains the hex centroid.
+    hex_centroids = gdf_h3.copy()
+    hex_centroids.geometry = hex_centroids.geometry.centroid
+
+    joined = gpd.sjoin(
+        hex_centroids,
+        gdf_fields_labeled[["lbl_autocorr", "lbl_autocorr_col", "geometry"]],
+        how="left",
+        predicate="within",
+    )
+
+    # Copy labels back to the hex grid (preserve left order)
+    gdf_h3["lbl_autocorr"] = joined["lbl_autocorr"].values
+    gdf_h3["lbl_autocorr_col"] = joined["lbl_autocorr_col"].values
 
     return gdf_h3
