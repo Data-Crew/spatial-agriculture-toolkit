@@ -7,6 +7,7 @@ by bounding box to handle large datasets efficiently.
 
 import ast
 import os
+import re
 import geopandas as gpd
 import pandas as pd
 from shapely.geometry import box
@@ -331,6 +332,42 @@ class FieldLoader:
         
         return gdf
     
+    def _find_props_csv_path(self, tile_name: str) -> Optional[str]:
+        """Resolve the properties CSV path for a tile or fragment."""
+        if not tile_name or not os.path.exists(self.base_dir):
+            return None
+
+        base_name = tile_name.replace('.geojson', '')
+
+        # Fragmented tile: 16tgk/16tgk_fragment_00_00.geojson -> props__fd_16tgk_*.csv
+        if '/' in base_name:
+            tile_key = base_name.split('/')[0]
+            matches = sorted(
+                f for f in os.listdir(self.base_dir)
+                if f.endswith('.csv') and f.startswith(f'props__fd_{tile_key}_')
+            )
+            if matches:
+                return os.path.join(self.base_dir, matches[0])
+            return None
+
+        if base_name.startswith('_demo_crop_fd_'):
+            base_name = base_name.replace('_demo_crop_fd_', '')
+
+        csv_patterns = [
+            f'props__fd_{base_name}.csv',
+            f'props_{base_name}.csv',
+        ]
+        if '_' in base_name:
+            parts = base_name.split('_')
+            if len(parts) >= 2:
+                csv_patterns.insert(0, f'props__fd_{parts[0]}_{parts[-1]}.csv')
+
+        for pattern in csv_patterns:
+            potential_path = os.path.join(self.base_dir, pattern)
+            if os.path.exists(potential_path):
+                return potential_path
+        return None
+
     def load_properties_csv(self, tile_name: str = None) -> pd.DataFrame:
         """
         Load properties CSV file for a tile.
@@ -346,43 +383,19 @@ class FieldLoader:
             DataFrame with field properties
         """
         if tile_name:
-            # Extract base name from tile_name
-            # Pattern: _demo_crop_fd_16tgk_10091004_v1.geojson -> props__fd_16tgk_10091004_v1.csv
-            base_name = tile_name.replace('.geojson', '')
-            
-            # Remove _demo_crop_fd_ prefix if present
-            if base_name.startswith('_demo_crop_fd_'):
-                base_name = base_name.replace('_demo_crop_fd_', '')
-            
-            # Look for matching CSV file
-            # The CSV pattern is: props__fd_{tile_id}_{version}.csv
-            csv_patterns = [
-                f"props__fd_{base_name}.csv",  # Direct match after removing prefix
-                f"props_{base_name}.csv",
-            ]
-            
-            # Also try splitting if needed (for pattern matching)
-            if '_' in base_name:
-                parts = base_name.split('_')
-                if len(parts) >= 2:
-                    csv_patterns.insert(0, f"props__fd_{parts[0]}_{parts[-1]}.csv")
-            
-            csv_path = None
-            for pattern in csv_patterns:
-                potential_path = os.path.join(self.base_dir, pattern)
-                if os.path.exists(potential_path):
-                    csv_path = potential_path
-                    break
+            csv_path = self._find_props_csv_path(tile_name)
         else:
             csv_path = None
-        
+
         if csv_path is None:
-            # Try to find any CSV file that might match
-            csv_files = [f for f in os.listdir(self.base_dir) if f.endswith('.csv')]
-            if csv_files:
-                csv_path = os.path.join(self.base_dir, csv_files[0])
-            else:
+            if tile_name:
                 return pd.DataFrame()
+            csv_files = sorted(
+                f for f in os.listdir(self.base_dir) if f.endswith('.csv')
+            )
+            if not csv_files:
+                return pd.DataFrame()
+            csv_path = os.path.join(self.base_dir, csv_files[0])
         
         # Load CSV
         df = pd.read_csv(csv_path)
@@ -405,58 +418,122 @@ class FieldLoader:
 
         return df
 
+    def expand_props_dict(self, props: dict) -> dict:
+        """Expand one field ``props`` dict into flat analysis columns."""
+        from collections import Counter
+
+        record: Dict = {}
+        if not isinstance(props, dict):
+            return record
+
+        for key in ('area', 'flatness', 'perimeter', 'confidence',
+                    'center_lat', 'center_lng'):
+            if key in props:
+                record[key] = props[key]
+
+        cdl = props.get('cdl_stats', {})
+        if cdl and 'year' in cdl and 'crops' in cdl:
+            years = cdl['year']
+            crops = cdl['crops']
+            crop_pcts = cdl.get('crop_percentages', [None] * len(years))
+            crop_ids = cdl.get('crop_ids', [None] * len(years))
+
+            for y, crop, pct, cid in zip(years, crops, crop_pcts, crop_ids):
+                record[f'crop_{y}'] = crop
+                record[f'crop_pct_{y}'] = pct
+                record[f'crop_id_{y}'] = cid
+
+            crop_counts = Counter(crops)
+            total_years = len(years)
+            if total_years:
+                for crop_name, count in crop_counts.items():
+                    col_name = f'freq_{str(crop_name).replace(" ", "_")}'
+                    record[col_name] = round(count / total_years, 4)
+            return record
+
+        # GeoJSON inline format: crops_2008, crop_percentage_2008, crops_ids_2008
+        years = sorted({
+            int(match.group(1))
+            for key in props
+            if (match := re.match(r'crops_(\d{4})$', key))
+        })
+        crops = []
+        for year in years:
+            crop = props.get(f'crops_{year}')
+            record[f'crop_{year}'] = crop
+            if f'crop_percentage_{year}' in props:
+                record[f'crop_pct_{year}'] = props[f'crop_percentage_{year}']
+            if f'crops_ids_{year}' in props:
+                record[f'crop_id_{year}'] = props[f'crops_ids_{year}']
+            if crop is not None:
+                crops.append(crop)
+
+        if crops:
+            crop_counts = Counter(crops)
+            total_years = len(crops)
+            for crop_name, count in crop_counts.items():
+                col_name = f'freq_{str(crop_name).replace(" ", "_")}'
+                record[col_name] = round(count / total_years, 4)
+
+        return record
+
     def expand_cdl_properties(self, props_df: pd.DataFrame) -> pd.DataFrame:
         """Expand the ``props`` column into individual analysis-ready columns.
 
         The CSV stores a nested ``props`` dict per field with scalar attributes
         (area, flatness, ...) and a ``cdl_stats`` sub-dict with per-year crops.
-        This flattens it into columns suitable for Moran I analysis:
+        GeoJSON tiles may instead embed a flat ``props`` dict on each feature.
+        This flattens either format into columns suitable for Moran I analysis:
 
         - ``area``, ``flatness``, ``perimeter``, ``confidence``, ``center_lat``,
           ``center_lng`` (when present)
         - ``crop_{year}``, ``crop_pct_{year}``, ``crop_id_{year}`` for each year
         - ``freq_{crop_name}`` = fraction of years that crop was dominant
         """
-        from collections import Counter
-
         records = []
         for _, row in props_df.iterrows():
             record = {'id': row['id']}
-            props = row.get('props')
-            if not isinstance(props, dict):
-                records.append(record)
-                continue
-
-            # Scalar fields
-            for key in ('area', 'flatness', 'perimeter', 'confidence',
-                        'center_lat', 'center_lng'):
-                if key in props:
-                    record[key] = props[key]
-
-            # CDL stats
-            cdl = props.get('cdl_stats', {})
-            if cdl and 'year' in cdl and 'crops' in cdl:
-                years = cdl['year']
-                crops = cdl['crops']
-                crop_pcts = cdl.get('crop_percentages', [None] * len(years))
-                crop_ids = cdl.get('crop_ids', [None] * len(years))
-
-                for y, crop, pct, cid in zip(years, crops, crop_pcts, crop_ids):
-                    record[f'crop_{y}'] = crop
-                    record[f'crop_pct_{y}'] = pct
-                    record[f'crop_id_{y}'] = cid
-
-                # Frequency columns: share of years each crop was dominant
-                crop_counts = Counter(crops)
-                total_years = len(years)
-                if total_years:
-                    for crop_name, count in crop_counts.items():
-                        col_name = f'freq_{str(crop_name).replace(" ", "_")}'
-                        record[col_name] = round(count / total_years, 4)
-
+            record.update(self.expand_props_dict(row.get('props')))
             records.append(record)
 
         return pd.DataFrame(records)
+
+    @staticmethod
+    def _is_enriched(gdf: gpd.GeoDataFrame) -> bool:
+        """True when scalar + crop indicator columns are present."""
+        if gdf is None or gdf.empty:
+            return False
+        has_scalars = any(c in gdf.columns for c in ('area', 'flatness'))
+        has_crop_metrics = any(
+            c.startswith('freq_') or c.startswith('crop_pct_')
+            for c in gdf.columns
+        )
+        return has_scalars and has_crop_metrics
+
+    def _expand_gdf_inline_props(self, gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+        """Expand embedded GeoJSON ``props`` dicts into top-level columns."""
+        if 'props' not in gdf.columns:
+            return gdf
+
+        records = []
+        for _, row in gdf.iterrows():
+            record = {'id': str(row['id'])}
+            record.update(self.expand_props_dict(row.get('props')))
+            records.append(record)
+
+        if not records:
+            return gdf.drop(columns=['props'], errors='ignore')
+
+        expanded = pd.DataFrame(records)
+        expanded['id'] = expanded['id'].astype(str)
+        gdf = gdf.drop(columns=['props'], errors='ignore')
+        gdf['id'] = gdf['id'].astype(str)
+
+        overlap = set(gdf.columns) & set(expanded.columns) - {'id'}
+        if overlap:
+            gdf = gdf.drop(columns=list(overlap))
+
+        return gdf.merge(expanded, on='id', how='left')
 
     def load_fields_with_properties(
         self,
@@ -472,18 +549,28 @@ class FieldLoader:
             return gdf
 
         props_df = self.load_properties_csv(tile_name)
-        if props_df.empty:
-            props_df = self.load_properties_csv()  # fallback to any CSV
 
         if not props_df.empty and 'props' in props_df.columns:
             try:
-                expanded = self.expand_cdl_properties(props_df)
                 gdf['id'] = gdf['id'].astype(str)
+                props_df = props_df.copy()
+                props_df['id'] = props_df['id'].astype(str)
+                field_ids = set(gdf['id'])
+                props_df = props_df[props_df['id'].isin(field_ids)]
+                expanded = self.expand_cdl_properties(props_df)
                 expanded['id'] = expanded['id'].astype(str)
+                overlap = set(gdf.columns) & set(expanded.columns) - {'id', 'geometry'}
+                if overlap:
+                    gdf = gdf.drop(columns=list(overlap))
                 gdf = gdf.merge(expanded, on='id', how='left')
             except Exception as e:
                 import warnings
                 warnings.warn(f"Could not merge properties: {e}")
+
+        if not self._is_enriched(gdf):
+            gdf = self._expand_gdf_inline_props(gdf)
+        else:
+            gdf = gdf.drop(columns=['props'], errors='ignore')
 
         return gdf
     

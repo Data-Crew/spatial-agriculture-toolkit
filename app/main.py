@@ -40,6 +40,44 @@ from app.spatial_autocorrelation.h3_diagnostics import (
     lisa_on_fields_render_on_hexes,
 )
 
+FIELDS_CACHE_VERSION = 2
+
+
+def _fields_cache_key(selected_tile, max_fields):
+    return f"{FIELDS_CACHE_VERSION}:{selected_tile}:{max_fields}"
+
+
+def _load_kepler_config(filename, tile_center=None, gdf_fields=None):
+    config_path = os.path.join(os.path.dirname(__file__), filename)
+    with open(config_path) as config_file:
+        config = json.load(config_file)
+
+    if tile_center:
+        config['config']['mapState']['latitude'] = tile_center[1]
+        config['config']['mapState']['longitude'] = tile_center[0]
+        config['config']['mapState']['zoom'] = 11
+
+    if gdf_fields is not None and len(gdf_fields) > 0:
+        tooltip_fields = ['id']
+        for col in ('area', 'flatness', 'perimeter', 'confidence'):
+            if col in gdf_fields.columns:
+                tooltip_fields.append(col)
+        freq_cols = sorted(c for c in gdf_fields.columns if c.startswith('freq_'))[:2]
+        pct_cols = sorted(
+            (c for c in gdf_fields.columns if c.startswith('crop_pct_')),
+            reverse=True,
+        )[:1]
+        tooltip_fields.extend(freq_cols)
+        tooltip_fields.extend(pct_cols)
+
+        tooltip_cfg = (
+            config['config']['visState']['interactionConfig']['tooltip']
+        )
+        layer_id = config['config']['visState']['layers'][0]['config']['dataId']
+        tooltip_cfg.setdefault('fieldsToShow', {})[layer_id] = tooltip_fields[:10]
+
+    return config
+
 # Page configuration
 st.set_page_config(
     page_title="Spatial Agriculture Toolkit",
@@ -84,7 +122,7 @@ menu_list = st.sidebar.radio(
 
 # Initialize field loader (cached to avoid reinitialization)
 @st.cache_resource
-def get_field_loader():
+def get_field_loader(_loader_version=2):
     return FieldLoader()
 
 field_loader = get_field_loader()
@@ -141,14 +179,21 @@ else:
             )
 
             # Check if we have cached fields for this tile
-            if 'loaded_fields' in st.session_state and st.session_state.get('selected_tile') == selected_tile:
-                gdf_fields = st.session_state['loaded_fields']
+            cache_key = _fields_cache_key(selected_tile, max_fields)
+            cached_key = st.session_state.get('loaded_fields_cache_key')
+            cached_fields = st.session_state.get('loaded_fields')
+            if (
+                cached_fields is not None
+                and cached_key == cache_key
+                and FieldLoader._is_enriched(cached_fields)
+            ):
+                gdf_fields = cached_fields
                 tile_center = st.session_state.get('tile_center', tile_center)
             else:
                 # Auto-load fields when tile is selected
                 try:
-                    with st.spinner(f"Loading fields from {selected_tile}..."):
-                        gdf_fields = field_loader.load_fields(
+                    with st.spinner(f"Loading fields and properties from {selected_tile}..."):
+                        gdf_fields = field_loader.load_fields_with_properties(
                             selected_tile,
                             max_fields=max_fields
                         )
@@ -156,21 +201,34 @@ else:
                     if len(gdf_fields) == 0:
                         st.sidebar.warning(f"No fields found in {selected_tile}")
                         st.session_state['loaded_fields'] = None
+                        st.session_state['loaded_fields_cache_key'] = None
                         gdf_fields = None
                     elif len(gdf_fields) >= max_fields:
                         st.sidebar.warning(f"⚠️ Loaded {len(gdf_fields)} fields (limit reached). Consider increasing Max Fields.")
                         st.session_state['loaded_fields'] = gdf_fields
+                        st.session_state['loaded_fields_cache_key'] = cache_key
                         st.session_state['selected_tile'] = selected_tile
                         st.session_state['tile_center'] = tile_center
                     else:
                         st.session_state['loaded_fields'] = gdf_fields
+                        st.session_state['loaded_fields_cache_key'] = cache_key
                         st.session_state['selected_tile'] = selected_tile
                         st.session_state['tile_center'] = tile_center
-                        st.sidebar.success(f"✅ Loaded {len(gdf_fields)} fields")
+                        enriched = FieldLoader._is_enriched(gdf_fields)
+                        if enriched:
+                            st.sidebar.success(
+                                f"✅ Loaded {len(gdf_fields)} fields with properties"
+                            )
+                        else:
+                            st.sidebar.warning(
+                                f"⚠️ Loaded {len(gdf_fields)} fields but crop/property "
+                                "columns are missing — check the matching props CSV."
+                            )
                 except Exception as e:
                     st.sidebar.error(f"Error loading fields: {str(e)}")
                     st.sidebar.exception(e)
                     st.session_state['loaded_fields'] = None
+                    st.session_state['loaded_fields_cache_key'] = None
                     gdf_fields = None
         except Exception as e:
             st.sidebar.error(f"Error getting tile info: {str(e)}")
@@ -191,16 +249,12 @@ if menu_list == "Spatial Interpolations":
     map_col = st.container(border=True)
     
     with map_col:
-        # Load Kepler config
-        config_path = os.path.join(os.path.dirname(__file__), 'spatial_interpolations', 'kepler_config.json')
-        with open(config_path) as config_file:
-            config = json.load(config_file)
-        
-        # Center map on tile center if available
-        if tile_center:
-            config['config']['mapState']['latitude'] = tile_center[1]
-            config['config']['mapState']['longitude'] = tile_center[0]
-            config['config']['mapState']['zoom'] = 11
+        # Single-layer Kepler config for field display (no ghost LISA layers)
+        config = _load_kepler_config(
+            'kepler_fields_config.json',
+            tile_center=tile_center,
+            gdf_fields=gdf_fields,
+        )
         
         sim_frame_map = KeplerGl(height=800, config=config)
         landing_map = sim_frame_map
@@ -705,27 +759,8 @@ if menu_list == "Spatial Autocorrelation":
     and spatial outliers in your agricultural data.
     """)
 
-    # --- Load enriched fields if tile is selected ---
-    # Uses gdf_fields and selected_tile from the shared sidebar
-    if selected_tile and gdf_fields is not None:
-        # Load enriched data with CDL properties (cached in session_state)
-        if ('autocorr_enriched_gdf' not in st.session_state
-                or st.session_state.get('autocorr_selected_tile') != selected_tile):
-            try:
-                with st.spinner("Loading field properties from CSV..."):
-                    gdf_enriched = field_loader.load_fields_with_properties(
-                        selected_tile, max_fields=max_fields
-                    )
-                st.session_state['autocorr_enriched_gdf'] = gdf_enriched
-                st.session_state['autocorr_selected_tile'] = selected_tile
-            except Exception as e:
-                st.warning(f"Could not load properties: {e}. Using basic fields.")
-                st.session_state['autocorr_enriched_gdf'] = gdf_fields
-                st.session_state['autocorr_selected_tile'] = selected_tile
-
-        gdf_enriched = st.session_state['autocorr_enriched_gdf']
-    else:
-        gdf_enriched = None
+    # --- Enriched fields come from the shared sidebar (load_fields_with_properties) ---
+    gdf_enriched = gdf_fields if selected_tile and gdf_fields is not None else None
 
     # --- Analysis Mode definitions ---
     ANALYSIS_MODES = {
@@ -781,26 +816,45 @@ if menu_list == "Spatial Autocorrelation":
     map_col = st.container(border=True)
 
     with map_col:
-        # Load Kepler config BEFORE constructing the map so the same pattern
-        # used by the Spatial Interpolations module (which renders the
-        # satellite basemap + layer styling correctly) also works here.
-        config_path = os.path.join(os.path.dirname(__file__), 'spatial_autocorrelation', 'kepler_config.json')
-        with open(config_path) as config_file:
-            config = json.load(config_file)
-
-        # Center map on tile if available
-        if tile_center:
-            config['config']['mapState']['latitude'] = tile_center[1]
-            config['config']['mapState']['longitude'] = tile_center[0]
-            config['config']['mapState']['zoom'] = 11
+        has_lisa_results = 'autocorr_results' in st.session_state
+        config_name = (
+            'spatial_autocorrelation/kepler_config.json'
+            if has_lisa_results
+            else 'kepler_fields_config.json'
+        )
+        config = _load_kepler_config(
+            config_name,
+            tile_center=tile_center,
+            gdf_fields=gdf_enriched if not has_lisa_results else None,
+        )
 
         sim_frame_map = KeplerGl(height=800, config=config)
         landing_map = sim_frame_map
 
-        # Show fields on map if loaded
-        if gdf_enriched is not None and len(gdf_enriched) > 0:
+        # Show fields on map if loaded (before LISA — single delineated_fields layer)
+        if (
+            not has_lisa_results
+            and gdf_enriched is not None
+            and len(gdf_enriched) > 0
+        ):
             sim_frame_map.add_data(data=gdf_enriched, name="delineated_fields")
             st.info(f"📊 {len(gdf_enriched)} enriched fields loaded and displayed on map")
+        elif has_lisa_results:
+            gdf_labeled = st.session_state['autocorr_results']
+            plot_columns = ['id', 'lbl_autocorr', 'lbl_autocorr_col', 'geometry']
+            if 'id' not in gdf_labeled.columns:
+                gdf_labeled = gdf_labeled.copy()
+                gdf_labeled['id'] = range(len(gdf_labeled))
+
+            label_order = {'HH': 0, 'HL': 1, 'LH': 2, 'LL': 3, 'ns': 4}
+            gdf_plot = gdf_labeled[plot_columns].copy()
+            gdf_plot['_sort'] = gdf_plot['lbl_autocorr'].map(label_order)
+            gdf_plot = gdf_plot.sort_values('_sort').drop(columns=['_sort'])
+            sim_frame_map.add_data(data=gdf_plot, name="spatial_autocorr")
+
+            if st.session_state.get('autocorr_hexgrid_used') and gdf_enriched is not None:
+                field_boundaries = gdf_enriched[['id', 'geometry']].copy()
+                sim_frame_map.add_data(data=field_boundaries, name="field_boundaries")
 
         with st.expander("**Configure Autocorrelation Analysis**", expanded=True):
             col1, col2, col3, col4 = st.columns([0.3, 0.2, 0.2, 0.3])
@@ -992,6 +1046,9 @@ if menu_list == "Spatial Autocorrelation":
                                 st.session_state['autocorr_results'] = gdf_labeled
                                 st.session_state['autocorr_mode_used'] = selected_mode
                                 st.session_state['autocorr_detail'] = indicator_detail
+                                st.session_state['autocorr_hexgrid_used'] = (
+                                    activate_hexgrid and compute_on_fields
+                                )
 
                                 plot_columns = ['id', 'lbl_autocorr', 'lbl_autocorr_col', 'geometry']
                                 if 'id' not in gdf_labeled.columns:

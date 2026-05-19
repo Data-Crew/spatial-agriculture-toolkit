@@ -1,0 +1,92 @@
+{
+  "version": "v1",
+  "config": {
+    "visState": {
+      "filters": [],
+      "layers": [
+        {
+          "id": "delineated_fields",
+          "type": "geojson",
+          "config": {
+            "dataId": "delineated_fields",
+            "label": "Delineated Fields",
+            "color": [46, 125, 50],
+            "columns": {
+              "geojson": "geometry"
+            },
+            "isVisible": true,
+            "visConfig": {
+              "opacity": 0.65,
+              "strokeOpacity": 1.0,
+              "thickness": 0.8,
+              "strokeColor": [255, 255, 255],
+              "stroked": true,
+              "filled": true,
+              "extruded": false,
+              "wireframe": false
+            }
+          },
+          "visualChannels": {
+            "colorField": {
+              "name": "area",
+              "type": "real"
+            },
+            "colorScale": "quantile",
+            "strokeColorField": null,
+            "strokeColorScale": "quantile",
+            "sizeField": null,
+            "sizeScale": "linear"
+          }
+        }
+      ],
+      "interactionConfig": {
+        "tooltip": {
+          "fieldsToShow": {
+            "delineated_fields": ["id", "area", "flatness", "perimeter"]
+          },
+          "enabled": true
+        },
+        "brush": {
+          "size": 0.5,
+          "enabled": false
+        },
+        "geocoder": {
+          "enabled": false
+        },
+        "coordinate": {
+          "enabled": false
+        }
+      },
+      "layerBlending": "normal",
+      "splitMaps": [],
+      "animationConfig": {
+        "currentTime": null,
+        "speed": 1
+      }
+    },
+    "mapState": {
+      "bearing": 0,
+      "dragRotate": false,
+      "latitude": 0,
+      "longitude": 0,
+      "pitch": 0,
+      "zoom": 11,
+      "isSplit": false
+    },
+    "mapStyle": {
+      "styleType": "satellite",
+      "topLayerGroups": {},
+      "visibleLayerGroups": {
+        "label": true,
+        "road": true,
+        "border": false,
+        "building": true,
+        "water": true,
+        "land": true,
+        "3d building": false
+      },
+      "threeDBuildingColor": [9.665468314072013, 17.18305478057247, 31.1442867897876],
+      "mapStyles": {}
+    }
+  }
+}
