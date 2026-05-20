@@ -1136,11 +1136,11 @@ if menu_list == "Spatial Autocorrelation":
             st.markdown("""
 **Cardinality badge** — appears next to the indicator you select.
 
-| Badge | Meaning | Example in your data |
+| Badge | Meaning | Typical example |
 |---|---|---|
-| 🔴 **Low** — < 5 unique values | The indicator takes very few distinct numbers. On a hexgrid, Moran's I degenerates: it sees "clones" of the same value repeated rather than real patterns. | `freq_corn` = 0.5 and 1.0 (2 values). `crop_pct_2022` = 35, 60, 92 (3 values). |
-| 🟡 **Medium** — 5–20 values | Acceptable. The test works but loses some fine-grained ordering. | — |
-| 🟢 **High** — > 20 values | Ideal. Behaves like a textbook continuous variable. | `area`, `perimeter` (each field has a different value). |
+| 🔴 **Low** — < 5 unique values | The indicator takes very few distinct numbers. On a hexgrid, Moran's I degenerates: it sees "clones" of the same value repeated rather than real patterns. | `freq_corn` = 0.5 and 1.0 (only 2 values). On this synthetic demo tile, `crop_pct_2022` is also Low because the test data was built from 3 cropping regimes. |
+| 🟡 **Medium** — 5–20 values | Acceptable. The test works but loses some fine-grained ordering. | `crop_pct_2022` on a **real-world tile** with diverse crops (≈ 8–15 distinct percentage values). |
+| 🟢 **High** — > 20 values | Ideal. Behaves like a textbook continuous variable. | `soil_moisture_pct`, `yield_bu_ac`, or real-world `crop_pct_*` measured per-field — each parcel has a different value. |
 
 **Why it matters:** when you activate H3 Hexgrid, `polyfill_resample` splits every field into many child hexes. Each hex inherits the **same value** as its parent. If the indicator only had 2 values (e.g. `freq_corn`), Moran's I now sees 200 hexes with only 2 numbers. The test cannot tell a "real spatial pattern" from "mechanical copies of the same number". That's why the badge is 🔴 and a warning fires.
 
