@@ -201,8 +201,13 @@ def lisa_on_fields_render_on_hexes(
         predicate="within",
     )
 
-    # Copy labels back to the hex grid (preserve left order)
-    gdf_h3["lbl_autocorr"] = joined["lbl_autocorr"].values
-    gdf_h3["lbl_autocorr_col"] = joined["lbl_autocorr_col"].values
+    # If a centroid falls inside multiple fields (overlap), keep the first
+    # match so the index stays unique and .map() works correctly.
+    joined = joined.loc[~joined.index.duplicated(keep="first")]
+
+    # Map labels back to the hex grid by index — never by .values,
+    # because sjoin may duplicate or reorder rows.
+    gdf_h3["lbl_autocorr"] = gdf_h3.index.map(joined["lbl_autocorr"]).fillna("ns")
+    gdf_h3["lbl_autocorr_col"] = gdf_h3.index.map(joined["lbl_autocorr_col"]).fillna("#D3D3D3")
 
     return gdf_h3
